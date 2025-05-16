@@ -1,4 +1,4 @@
-package caddy_static_deployer
+package caddy_site_deployer
 
 import (
 	"archive/tar"
@@ -20,10 +20,10 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(StaticSiteDeployer{})
+	caddy.RegisterModule(SiteDeployer{})
 }
 
-type StaticSiteDeployer struct {
+type SiteDeployer struct {
 	// The path to the root of the site. Default is `{http.vars.root}` if set,
 	// or current working directory otherwise. This should be a trusted value.
 	Root string `json:"root,omitempty"`
@@ -39,15 +39,15 @@ type StaticSiteDeployer struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (StaticSiteDeployer) CaddyModule() caddy.ModuleInfo {
+func (SiteDeployer) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "http.handlers.static_site_deployer",
-		New: func() caddy.Module { return new(StaticSiteDeployer) },
+		ID:  "http.handlers.site_deployer",
+		New: func() caddy.Module { return new(SiteDeployer) },
 	}
 }
 
 // Provision sets up the Static Site Deployer.
-func (deployer *StaticSiteDeployer) Provision(ctx caddy.Context) error {
+func (deployer *SiteDeployer) Provision(ctx caddy.Context) error {
 	deployer.logger = ctx.Logger()
 
 	if deployer.Root == "" {
@@ -63,7 +63,7 @@ func (deployer *StaticSiteDeployer) Provision(ctx caddy.Context) error {
 	return nil
 }
 
-func (deployer *StaticSiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	// Validate HTTP Method
 	if r.Method != "PUT" {
 		w.Write([]byte("Only PUT method is allowed"))
@@ -216,7 +216,7 @@ func (deployer *StaticSiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Req
 // It includes security checks to prevent path traversal attacks.
 // This function wraps deployer.extractTarToTemp to ensure all error path lead to a cleanup.
 // Do not call deployer.extractTarToTemp directly!
-func (deployer *StaticSiteDeployer) ExtractTarToTemp(tarReader *tar.Reader) (string, error) {
+func (deployer *SiteDeployer) ExtractTarToTemp(tarReader *tar.Reader) (string, error) {
 	tempDir, err := deployer.extractTarToTemp(tarReader)
 	if err != nil {
 		os.RemoveAll(tempDir)
@@ -225,7 +225,7 @@ func (deployer *StaticSiteDeployer) ExtractTarToTemp(tarReader *tar.Reader) (str
 	return tempDir, err
 }
 
-func (deployer *StaticSiteDeployer) extractTarToTemp(tarReader *tar.Reader) (string, error) {
+func (deployer *SiteDeployer) extractTarToTemp(tarReader *tar.Reader) (string, error) {
 	tempDir, err := os.MkdirTemp("", "artifact-")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temporary directory: %w", err)
@@ -296,7 +296,7 @@ func (deployer *StaticSiteDeployer) extractTarToTemp(tarReader *tar.Reader) (str
 	return tempDir, nil
 }
 
-func (deployer *StaticSiteDeployer) rollback(targetDirectory string) error {
+func (deployer *SiteDeployer) rollback(targetDirectory string) error {
 	backupDirectory := deployer.getBackupPath(targetDirectory)
 	if _, err := os.Stat(backupDirectory); err != nil {
 		if c := deployer.logger.Check(zapcore.ErrorLevel, "failure during rollback"); c != nil {
@@ -334,7 +334,7 @@ func (deployer *StaticSiteDeployer) rollback(targetDirectory string) error {
 	return err
 }
 
-func (deployer *StaticSiteDeployer) removeDirectory(directory string) {
+func (deployer *SiteDeployer) removeDirectory(directory string) {
 	if _, err := os.Stat(directory); err == nil {
 		if err := os.RemoveAll(directory); err != nil {
 			if c := deployer.logger.Check(zapcore.ErrorLevel, "failed to clean up existing directory"); c != nil {
@@ -354,6 +354,6 @@ func (deployer *StaticSiteDeployer) removeDirectory(directory string) {
 	}
 }
 
-func (deployer *StaticSiteDeployer) getBackupPath(directory string) string {
+func (deployer *SiteDeployer) getBackupPath(directory string) string {
 	return strings.TrimSuffix(directory, "/") + ".backup/"
 }

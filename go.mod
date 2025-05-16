@@ -1,4 +1,4 @@
-module github.com/thebigroomxxl/caddy-static-site-deployer
+module github.com/thebigroomxxl/caddy-site-deployer
 
 go 1.24.2
 
