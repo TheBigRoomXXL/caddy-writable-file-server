@@ -1,13 +1,18 @@
 package caddy_site_deployer
 
 import (
+	"bytes"
+	"context"
+	"fmt"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"runtime"
 	"testing"
 
+	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -99,6 +104,68 @@ func TestRejectWindowADSPath(t *testing.T) {
 	err := deployer.ServeHTTP(w, r, &MockHandler{})
 	errHandler, ok := err.(caddyhttp.HandlerError)
 
+	assert.NotNil(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, errHandler.StatusCode)
+}
+
+func TestRejectEmptyBody(t *testing.T) {
+	deployer := newTestSiteDeployer()
+	w := httptest.NewRecorder()
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	fmt.Println("caddy.ReplacerCtxKey", caddy.ReplacerCtxKey)
+	fmt.Println(ctx.Value(caddy.ReplacerCtxKey))
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", nil)
+	r.Header.Add("Content-Type", "multipart/form-data")
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	errHandler, ok := err.(caddyhttp.HandlerError)
+
+	assert.NotNil(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, errHandler.StatusCode)
+}
+
+func TestRejectMissingArtifact(t *testing.T) {
+	deployer := newTestSiteDeployer()
+	w := httptest.NewRecorder()
+
+	bodyWriter := new(bytes.Buffer)
+	formWriter := multipart.NewWriter(bodyWriter)
+	formWriter.WriteField("not-artifact", "some-date")
+	formWriter.Close()
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", bodyWriter)
+	r.Header.Add("Content-Type", "multipart/form-data; boundary="+formWriter.Boundary())
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	errHandler, ok := err.(caddyhttp.HandlerError)
+
+	assert.NotNil(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, http.StatusUnprocessableEntity, errHandler.StatusCode)
+	assert.Equal(t, "Could not retrieve artifact from body", w.Body.String())
+}
+
+func TestRejectMalformedArtifact(t *testing.T) {
+	deployer := newTestSiteDeployer()
+	w := httptest.NewRecorder()
+
+	bodyWriter := new(bytes.Buffer)
+	formWriter := multipart.NewWriter(bodyWriter)
+	formWriter.WriteField("artifact", "not a gzipped tarball")
+	formWriter.Close()
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", bodyWriter)
+	r.Header.Add("Content-Type", "multipart/form-data; boundary="+formWriter.Boundary())
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	errHandler, ok := err.(caddyhttp.HandlerError)
+	fmt.Println(errHandler.Err.Error())
 	assert.NotNil(t, err)
 	assert.True(t, ok)
 	assert.Equal(t, http.StatusBadRequest, errHandler.StatusCode)
