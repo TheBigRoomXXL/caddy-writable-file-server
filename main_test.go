@@ -55,3 +55,30 @@ func TestOnlyPUTAllowed(t *testing.T) {
 		})
 	}
 }
+
+func TestOnlyMultipartFormaDataIsAllowed(t *testing.T) {
+	var tests = []string{
+		"text/plain",
+		"text/html",
+		"text/xml",
+		"application/json",
+		"application/octet-stream",
+	}
+	deployer := newTestSiteDeployer()
+
+	for _, contentType := range tests {
+		t.Run(contentType, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r, _ := http.NewRequest("PUT", "/", nil)
+			r.Header.Add("Content-Type", contentType)
+
+			err := deployer.ServeHTTP(w, r, &MockHandler{})
+			errHandler, ok := err.(caddyhttp.HandlerError)
+
+			assert.NotNil(t, err)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusUnprocessableEntity, errHandler.StatusCode)
+			assert.Equal(t, "Only 'multipart/form-data' content-type is allowed", w.Body.String())
+		})
+	}
+}
