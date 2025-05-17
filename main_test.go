@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
@@ -81,4 +82,24 @@ func TestOnlyMultipartFormaDataIsAllowed(t *testing.T) {
 			assert.Equal(t, "Only 'multipart/form-data' content-type is allowed", w.Body.String())
 		})
 	}
+}
+
+func TestRejectWindowADSPath(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Skipping windows specific tests")
+	}
+
+	pathWithADS := `\Path\To\Your\File.txt:hiddenstream.txt`
+
+	deployer := newTestSiteDeployer()
+	w := httptest.NewRecorder()
+	r, _ := http.NewRequest("PUT", pathWithADS, nil)
+	r.Header.Add("Content-Type", "multipart/form-data")
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	errHandler, ok := err.(caddyhttp.HandlerError)
+
+	assert.NotNil(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, errHandler.StatusCode)
 }
