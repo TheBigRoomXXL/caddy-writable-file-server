@@ -188,3 +188,28 @@ func TestUploadFileInsteadOfDirectory(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, http.StatusBadRequest, errHandler.StatusCode)
 }
+
+func TestUploadDirectory(t *testing.T) {
+	deployer := newTestSiteDeployer()
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	w := httptest.NewRecorder()
+	body := newMultipartFormFromFile("test_assets/artifact-01.tar.gz")
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", body)
+	r.Header.Add("Content-Type", "multipart/form-data; boundary=DIVNEKSNXXMD")
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+
+	assert.Nil(t, err)
+	assert.Equal(t, 200, w.Result().StatusCode)
+
+	deployedArtifact, err := os.Open(deployer.Root + "/index.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deployedArtifact.Close()
+	content, err := io.ReadAll(deployedArtifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, "Hi. What are you doing here?\n", string(content))
+}
