@@ -211,24 +211,17 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	return nil
 }
 
-// Extracts a tarball to a new temporary directory.
-// It includes security checks to prevent path traversal attacks.
-// This function wraps deployer.extractTarToTempNoCleanup to ensure all error path lead to
-// a cleanup. Do not call deployer.extractTarToTempNoCleanup directly!
 func (deployer *SiteDeployer) extractTarToTemp(tarReader *tar.Reader) (string, error) {
-	tempDir, err := deployer.extractTarToTempNoCleanup(tarReader)
-	if err != nil {
-		_ = os.RemoveAll(tempDir)
-		tempDir = ""
-	}
-	return tempDir, err
-}
-
-func (deployer *SiteDeployer) extractTarToTempNoCleanup(tarReader *tar.Reader) (string, error) {
 	tempDir, err := os.MkdirTemp("", "artifact-")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temporary directory: %w", err)
 	}
+	defer func() {
+		// This function with cleanup the temp directory automatically in case of error
+		if err != nil {
+			_ = os.RemoveAll(tempDir)
+		}
+	}()
 
 	for {
 		header, err := tarReader.Next()
