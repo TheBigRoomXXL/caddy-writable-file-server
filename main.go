@@ -24,8 +24,7 @@ func init() {
 }
 
 type SiteDeployer struct {
-	// The path to the root of the site. Default is `{http.vars.root}` if set,
-	// or current working directory otherwise. This should be a trusted value.
+	// The path to the root of the site. Default is `{http.vars.root}`
 	Root string `json:"root,omitempty"`
 
 	// Maximimum size of the uploaded (compressed) archive in MB
@@ -140,19 +139,19 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	gzipReader, err := gzip.NewReader(artifact)
 	if err != nil {
 		return caddyhttp.Error(
-			http.StatusInternalServerError,
+			http.StatusBadRequest,
 			fmt.Errorf("failed to create gzip reader for artifact: %w", err),
 		)
 
 	}
 	defer gzipReader.Close()
 
-	// Extract tarball to temporary directory
+	// Extract tarball to temporary dir	ectory
 	tarReader := tar.NewReader(gzipReader)
-	tempDir, err := deployer.ExtractTarToTemp(tarReader)
+	tempDir, err := deployer.extractTarToTemp(tarReader)
 	if err != nil {
 		return caddyhttp.Error(
-			http.StatusInternalServerError,
+			http.StatusBadRequest,
 			fmt.Errorf("could not extract tarball to temps folder: %w", err),
 		)
 	}
@@ -212,20 +211,20 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	return nil
 }
 
-// ExtractTarToTemp extracts a tarball to a new temporary directory.
+// Extracts a tarball to a new temporary directory.
 // It includes security checks to prevent path traversal attacks.
-// This function wraps deployer.extractTarToTemp to ensure all error path lead to a cleanup.
-// Do not call deployer.extractTarToTemp directly!
-func (deployer *SiteDeployer) ExtractTarToTemp(tarReader *tar.Reader) (string, error) {
-	tempDir, err := deployer.extractTarToTemp(tarReader)
+// This function wraps deployer.extractTarToTempNoCleanup to ensure all error path lead to
+// a cleanup. Do not call deployer.extractTarToTempNoCleanup directly!
+func (deployer *SiteDeployer) extractTarToTemp(tarReader *tar.Reader) (string, error) {
+	tempDir, err := deployer.extractTarToTempNoCleanup(tarReader)
 	if err != nil {
-		os.RemoveAll(tempDir)
+		_ = os.RemoveAll(tempDir)
 		tempDir = ""
 	}
 	return tempDir, err
 }
 
-func (deployer *SiteDeployer) extractTarToTemp(tarReader *tar.Reader) (string, error) {
+func (deployer *SiteDeployer) extractTarToTempNoCleanup(tarReader *tar.Reader) (string, error) {
 	tempDir, err := os.MkdirTemp("", "artifact-")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temporary directory: %w", err)
