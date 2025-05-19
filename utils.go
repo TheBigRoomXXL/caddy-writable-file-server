@@ -89,17 +89,9 @@ func extractTarToTemp(logger *zap.Logger, tarReader *tar.Reader) (string, error)
 }
 
 func cleanupDirectory(logger *zap.Logger, directory string) {
-	if _, err := os.Stat(directory); err == nil {
-		if err := os.RemoveAll(directory); err != nil {
-			if c := logger.Check(zapcore.ErrorLevel, "failed to clean up existing directory"); c != nil {
-				c.Write(
-					zap.String("directory", directory),
-					zap.String("error", err.Error()),
-				)
-			}
-		}
-	} else if !os.IsNotExist(err) {
-		if c := logger.Check(zapcore.ErrorLevel, "failed to stat directory during cleanup"); c != nil {
+	err := os.RemoveAll(directory)
+	if err != nil {
+		if c := logger.Check(zapcore.WarnLevel, "failed to clean up directory"); c != nil {
 			c.Write(
 				zap.String("directory", directory),
 				zap.String("error", err.Error()),
