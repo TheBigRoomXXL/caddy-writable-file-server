@@ -152,15 +152,25 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	defer gzipReader.Close()
 
 	// Extract tarball to temporary directory
-	tarReader := tar.NewReader(gzipReader)
-	tempDir, err := extractTarToTemp(deployer.logger, tarReader)
+	// Using a folder next to the target ensure it is on the same file system, allowing us
+	// to use os.Rename for atomic update. (/tmp is often on a RAM fil system)
+	tempDir, err := os.MkdirTemp(filepath.Dir(targetDirectory), filepath.Base(targetDirectory))
 	if err != nil {
 		return caddyhttp.Error(
-			http.StatusBadRequest,
-			fmt.Errorf("could not extract tarball to temps folder: %w", err),
+			http.StatusInternalServerError,
+			fmt.Errorf("could not create temporary directory for extraction: %w", err),
 		)
 	}
 	defer cleanupDirectory(deployer.logger, tempDir)
+
+	tarReader := tar.NewReader(gzipReader)
+	err = extractTar(deployer.logger, tarReader, tempDir)
+	if err != nil {
+		return caddyhttp.Error(
+			http.StatusBadRequest,
+			fmt.Errorf("could not extract tarball to temporary directory: %w", err),
+		)
+	}
 
 	// Backup target directory or create it and its parents if new
 	_, err = os.Stat(targetDirectory)
@@ -194,18 +204,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 
 	// Swap target directory with artifact using atomic `Rename`
 	err = os.Rename(tempDir, targetDirectory)
-	if err != nil && strings.Contains(err.Error(), "invalid cross-device link") {
-		// This is an edge case where the temporary directory is on another partition
-		// Because of that we cannot use `Rename` and we must use copy instead.
-		err = os.CopyFS(targetDirectory, os.DirFS(tempDir))
 		if err != nil {
-			_ = deployer.rollback(targetDirectory)
-			return caddyhttp.Error(
-				http.StatusInternalServerError,
-				fmt.Errorf("failed to copy temporary directoy (%s) to target (%s): %w", tempDir, targetDirectory, err),
-			)
-		}
-	} else if err != nil {
 		_ = deployer.rollback(targetDirectory)
 		return caddyhttp.Error(
 			http.StatusInternalServerError,
