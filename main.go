@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -204,7 +205,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 
 	// Swap target directory with artifact using atomic `Rename`
 	err = os.Rename(tempDir, targetDirectory)
-		if err != nil {
+	if err != nil {
 		_ = deployer.rollback(targetDirectory)
 		return caddyhttp.Error(
 			http.StatusInternalServerError,
@@ -216,9 +217,10 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 }
 
 func (deployer *SiteDeployer) rollback(targetDirectory string) error {
+	// Check backup exist
 	backupDirectory := getBackupPath(targetDirectory)
 	if _, err := os.Stat(backupDirectory); err != nil {
-		if c := deployer.logger.Check(zapcore.ErrorLevel, "failure during rollback"); c != nil {
+		if c := deployer.logger.Check(zapcore.ErrorLevel, "backup does not exist during rollback"); c != nil {
 			c.Write(
 				zap.String("targetDirectory", targetDirectory),
 				zap.String("backupDirectory", backupDirectory),
@@ -227,10 +229,11 @@ func (deployer *SiteDeployer) rollback(targetDirectory string) error {
 		}
 		return err
 	}
-	// First we cleaup the targetDirectory if it still exist
+
+	// First we cleanup the targetDirectory if it still exist
 	err := os.RemoveAll(targetDirectory)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		if c := deployer.logger.Check(zapcore.ErrorLevel, "failure during rollback"); c != nil {
+		if c := deployer.logger.Check(zapcore.ErrorLevel, "could not cleanup target ddirectory during rollback"); c != nil {
 			c.Write(
 				zap.String("targetDirectory", targetDirectory),
 				zap.String("backupDirectory", backupDirectory),
@@ -239,9 +242,11 @@ func (deployer *SiteDeployer) rollback(targetDirectory string) error {
 		}
 		return err
 	}
+
+	// Actually restore the original directory
 	err = os.Rename(backupDirectory, targetDirectory)
 	if err != nil {
-		if c := deployer.logger.Check(zapcore.ErrorLevel, "failure during rollback"); c != nil {
+		if c := deployer.logger.Check(zapcore.ErrorLevel, "could not restore backup during rollback"); c != nil {
 			c.Write(
 				zap.String("targetDirectory", targetDirectory),
 				zap.String("backupDirectory", backupDirectory),
