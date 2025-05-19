@@ -155,7 +155,8 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	// Extract tarball to temporary directory
 	// Using a folder next to the target ensure it is on the same file system, allowing us
 	// to use os.Rename for atomic update. (/tmp is often on a RAM fil system)
-	tempDir, err := os.MkdirTemp(filepath.Dir(targetDirectory), filepath.Base(targetDirectory))
+	targetParent := filepath.Dir(strings.TrimSuffix(targetDirectory, "/"))
+	tempDir, err := os.MkdirTemp(targetParent, filepath.Base(targetDirectory))
 	if err != nil {
 		return caddyhttp.Error(
 			http.StatusInternalServerError,
@@ -163,7 +164,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		)
 	}
 	defer cleanupDirectory(deployer.logger, tempDir)
-
+	fmt.Println(tempDir)
 	tarReader := tar.NewReader(gzipReader)
 	err = extractTar(deployer.logger, tarReader, tempDir)
 	if err != nil {
