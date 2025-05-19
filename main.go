@@ -12,12 +12,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
+
+var lock sync.Mutex = sync.Mutex{}
 
 func init() {
 	caddy.RegisterModule(SiteDeployer{})
@@ -63,6 +66,10 @@ func (deployer *SiteDeployer) Provision(ctx caddy.Context) error {
 }
 
 func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+	// Request are processed sequencially to avoid conflict
+	lock.Lock()
+	defer lock.Unlock()
+
 	// Validate HTTP Method
 	if r.Method != "PUT" {
 		w.Write([]byte("Only PUT method is allowed"))
