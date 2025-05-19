@@ -151,7 +151,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	}
 	defer gzipReader.Close()
 
-	// Extract tarball to temporary dir	ectory
+	// Extract tarball to temporary directory
 	tarReader := tar.NewReader(gzipReader)
 	tempDir, err := extractTarToTemp(deployer.logger, tarReader)
 	if err != nil {
