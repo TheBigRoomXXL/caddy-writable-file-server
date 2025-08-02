@@ -99,19 +99,19 @@ func rollback(target string) error {
 	// Check backup exist
 	targetbackup := getBackupPath(target)
 	if _, err := os.Stat(targetbackup); err != nil {
-		return fmt.Errorf("backup does not exist during rollback: %w")
+		return fmt.Errorf("backup does not exist during rollback: %w", err)
 	}
 
 	// First we cleanup the targetDirectory if it still exist
 	err := os.RemoveAll(target)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("could not cleanup target ddirectory during rollback: %w")
+		return fmt.Errorf("could not cleanup target ddirectory during rollback: %w", err)
 	}
 
-	// Actually restore the original directory
+	// Then w restore the original directory
 	err = os.Rename(targetbackup, target)
 	if err != nil {
-		return fmt.Errorf("could not restore backup during rollback: %w")
+		return fmt.Errorf("could not restore backup during rollback: %w", err)
 	}
 
 	return err
