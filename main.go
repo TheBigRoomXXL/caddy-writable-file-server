@@ -1,8 +1,6 @@
 package caddy_site_deployer
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"errors"
 	"fmt"
 	"net/http"
@@ -23,6 +21,7 @@ var lock sync.Mutex = sync.Mutex{}
 
 func init() {
 	caddy.RegisterModule(SiteDeployer{})
+	// TODO: on init, restore backup if exist.
 }
 
 type SiteDeployer struct {
@@ -162,111 +161,80 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 				fmt.Errorf("failed to backup target directory %s: %w", target, err),
 			)
 		}
-		defer cleanupTarget(deployer.logger, targetBackup)
+		defer func() {
+			err := os.RemoveAll(target)
+			if err != nil {
+				if c := deployer.logger.Check(zapcore.WarnLevel, "failed to clean up target"); c != nil {
+					c.Write(
+						zap.String("target", target),
+						zap.String("error", err.Error()),
+					)
+				}
+			}
+		}()
 	}
 
 	// Swap target directory with artifact using atomic `Rename`
 	err = os.Rename(targetTemp, target)
 	if err != nil {
-		_ = deployer.rollback(target)
-		return caddyhttp.Error(
-			http.StatusInternalServerError,
-			fmt.Errorf("failed to swap temporary directoy (%s) with target (%s): %w", targetTemp, target, err),
-		)
+		err := fmt.Errorf("failed to swap temporary directoy (%s) with target (%s): %w", targetTemp, target, err)
+		errRollback := rollback(target)
+		if errRollback != nil {
+			err = fmt.Errorf("failed to swap temporary directoy (%s) with target (%s): %w AND failed to rollback: %w", targetTemp, target, err, err)
+		}
+		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
 	return nil
 
 }
 
-func (deployer *SiteDeployer) extractDirectory(target string, w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	// Parse the form data
-	if err := r.ParseMultipartForm(deployer.maxSizeB); err != nil {
-		return caddyhttp.Error(
-			http.StatusBadRequest, fmt.Errorf("failed to parse multipart body: %w", err),
-		)
-	}
+// func (deployer *SiteDeployer) extractDirectory(target string, w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+// 	// Parse the form data
+// 	if err := r.ParseMultipartForm(deployer.maxSizeB); err != nil {
+// 		return caddyhttp.Error(
+// 			http.StatusBadRequest, fmt.Errorf("failed to parse multipart body: %w", err),
+// 		)
+// 	}
 
-	artifact, _, err := r.FormFile("artifact")
-	if err != nil {
-		return err
-	}
-	defer artifact.Close()
+// 	artifact, _, err := r.FormFile("artifact")
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer artifact.Close()
 
-	// Assume a gzipped tar archive
-	gzipReader, err := gzip.NewReader(artifact)
-	if err != nil {
-		return caddyhttp.Error(
-			http.StatusBadRequest,
-			fmt.Errorf("failed to create gzip reader for artifact: %w", err),
-		)
+// 	// Assume a gzipped tar archive
+// 	gzipReader, err := gzip.NewReader(artifact)
+// 	if err != nil {
+// 		return caddyhttp.Error(
+// 			http.StatusBadRequest,
+// 			fmt.Errorf("failed to create gzip reader for artifact: %w", err),
+// 		)
 
-	}
-	defer gzipReader.Close()
+// 	}
+// 	defer gzipReader.Close()
 
-	// Extract tarball to temporary directory
-	// Using a folder next to the target ensure it is on the same file system, allowing us
-	// to use os.Rename for atomic update. (/tmp is often on a RAM file system)
-	targetParent := filepath.Dir(strings.TrimSuffix(target, "/"))
-	tempDir, err := os.MkdirTemp(targetParent, filepath.Base(target))
-	if err != nil {
-		return caddyhttp.Error(
-			http.StatusInternalServerError,
-			fmt.Errorf("could not create temporary directory for extraction: %w", err),
-		)
-	}
-	defer cleanupTarget(deployer.logger, tempDir)
-	fmt.Println(tempDir)
-	tarReader := tar.NewReader(gzipReader)
-	err = extractTar(deployer.logger, tarReader, tempDir)
-	if err != nil {
-		return caddyhttp.Error(
-			http.StatusBadRequest,
-			fmt.Errorf("could not extract tarball to temporary directory: %w", err),
-		)
-	}
+// 	// Extract tarball to temporary directory
+// 	// Using a folder next to the target ensure it is on the same file system, allowing us
+// 	// to use os.Rename for atomic update. (/tmp is often on a RAM file system)
+// 	targetParent := filepath.Dir(strings.TrimSuffix(target, "/"))
+// 	tempDir, err := os.MkdirTemp(targetParent, filepath.Base(target))
+// 	if err != nil {
+// 		return caddyhttp.Error(
+// 			http.StatusInternalServerError,
+// 			fmt.Errorf("could not create temporary directory for extraction: %w", err),
+// 		)
+// 	}
+// 	defer cleanupTarget(deployer.logger, tempDir)
+// 	fmt.Println(tempDir)
+// 	tarReader := tar.NewReader(gzipReader)
+// 	err = extractTar(deployer.logger, tarReader, tempDir)
+// 	if err != nil {
+// 		return caddyhttp.Error(
+// 			http.StatusBadRequest,
+// 			fmt.Errorf("could not extract tarball to temporary directory: %w", err),
+// 		)
+// 	}
 
-	return nil
-}
-
-func (deployer *SiteDeployer) rollback(target string) error {
-	// Check backup exist
-	targetbackup := getBackupPath(target)
-	if _, err := os.Stat(targetbackup); err != nil {
-		if c := deployer.logger.Check(zapcore.ErrorLevel, "backup does not exist during rollback"); c != nil {
-			c.Write(
-				zap.String("target", target),
-				zap.String("targetbackup", targetbackup),
-				zap.String("error", fmt.Sprintf("could not stat backup directory: %s", err.Error())),
-			)
-		}
-		return err
-	}
-
-	// First we cleanup the targetDirectory if it still exist
-	err := os.RemoveAll(target)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		if c := deployer.logger.Check(zapcore.ErrorLevel, "could not cleanup target ddirectory during rollback"); c != nil {
-			c.Write(
-				zap.String("target", target),
-				zap.String("targetbackup", targetbackup),
-				zap.String("error", fmt.Sprintf("could not clean target directory: %s", err.Error())),
-			)
-		}
-		return err
-	}
-
-	// Actually restore the original directory
-	err = os.Rename(targetbackup, target)
-	if err != nil {
-		if c := deployer.logger.Check(zapcore.ErrorLevel, "could not restore backup during rollback"); c != nil {
-			c.Write(
-				zap.String("target", target),
-				zap.String("targetbackup", targetbackup),
-				zap.String("error", fmt.Sprintf("could not rename backup directory: %s", err.Error())),
-			)
-		}
-	}
-
-	return err
-}
+// 	return nil
+// }

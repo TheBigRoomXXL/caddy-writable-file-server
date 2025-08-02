@@ -2,6 +2,7 @@ package caddy_site_deployer
 
 import (
 	"archive/tar"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -93,17 +94,27 @@ func extractDirectory(target string, reader io.ReadCloser, contentType string) e
 	return nil
 }
 
-// Remove a target file or directory. It is ok for the target to not exist. Only log if it enconter an error.
-func cleanupTarget(logger *zap.Logger, target string) {
-	err := os.RemoveAll(target)
-	if err != nil {
-		if c := logger.Check(zapcore.WarnLevel, "failed to clean up target"); c != nil {
-			c.Write(
-				zap.String("target", target),
-				zap.String("error", err.Error()),
-			)
-		}
+// Delete ay file or directory that was deployed and try to restore backup
+func rollback(target string) error {
+	// Check backup exist
+	targetbackup := getBackupPath(target)
+	if _, err := os.Stat(targetbackup); err != nil {
+		return fmt.Errorf("backup does not exist during rollback: %w")
 	}
+
+	// First we cleanup the targetDirectory if it still exist
+	err := os.RemoveAll(target)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("could not cleanup target ddirectory during rollback: %w")
+	}
+
+	// Actually restore the original directory
+	err = os.Rename(targetbackup, target)
+	if err != nil {
+		return fmt.Errorf("could not restore backup during rollback: %w")
+	}
+
+	return err
 }
 
 // Return a backup path next to the target.

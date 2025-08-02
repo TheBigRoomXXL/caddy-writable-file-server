@@ -1,45 +1,16 @@
 package caddy_site_deployer
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 )
-
-func newLogsCapture() (*zap.Logger, *observer.ObservedLogs) {
-	core, logs := observer.New(zap.InfoLevel)
-	return zap.New(core), logs
-}
 
 func TestGetBackupPathDirectory(t *testing.T) {
 	path := "/path/to/dir/"
 	pathBackup := getBackupPath(path)
 	assert.Equal(t, "/path/to/dir.backup/", pathBackup)
 }
-
-func TestCleanupDirectory(t *testing.T) {
-	logger, log := newLogsCapture()
-	tempDir, err := os.MkdirTemp("", "test-cleanup-")
-	if err != nil {
-		panic(err)
-	}
-	cleanupTarget(logger, tempDir)
-	assert.NoDirExists(t, tempDir)
-	assert.Equal(t, 0, log.Len())
-}
-
-func TestCleanupEmtpyDirectory(t *testing.T) {
-	logger, log := newLogsCapture()
-	cleanupTarget(logger, "/tmp/does-not-exist")
-	assert.Equal(t, 0, log.Len())
-}
-
-// TEST: TestCleanupFile
-
-// TEST: TestCleanupFileDoesNotExist
 
 // TEST: TestGetBackupPathFile
 
@@ -50,3 +21,7 @@ func TestCleanupEmtpyDirectory(t *testing.T) {
 // TEST: ExtractFile
 
 // TEST: ExtractDirectory
+
+// TEST: roolback file
+
+// TEST: rollback directory
