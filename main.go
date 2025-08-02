@@ -17,6 +17,9 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const DIR_PERM = 0740
+const FILE_PERM = 0640
+
 var lock sync.Mutex = sync.Mutex{}
 
 func init() {
@@ -145,7 +148,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		if !isDirectory {
 			targetDirectory = filepath.Dir(target)
 		}
-		if err := os.MkdirAll(targetDirectory, 0755); err != nil {
+		if err := os.MkdirAll(targetDirectory, DIR_PERM); err != nil {
 			return caddyhttp.Error(
 				http.StatusInternalServerError,
 				fmt.Errorf("failed to create target directory %s: %w", target, err),

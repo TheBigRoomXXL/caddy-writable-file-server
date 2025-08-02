@@ -54,7 +54,7 @@ func extractTar(logger *zap.Logger, tarReader *tar.Reader, path string) error {
 
 		case tar.TypeReg:
 			parentDir := filepath.Dir(targetPath)
-			if err := os.MkdirAll(parentDir, 0755); err != nil { // Using a default permission for parent dirs
+			if err := os.MkdirAll(parentDir, 0750); err != nil { // Using a default permission for parent dirs
 				return fmt.Errorf("failed to create parent directory for file %s: %w", targetPath, err)
 			}
 
@@ -84,8 +84,20 @@ func extractTar(logger *zap.Logger, tarReader *tar.Reader, path string) error {
 	return nil
 }
 
-// TODO: implementation
+// create target and copy the content of reader into it.
 func extractFile(target string, reader io.ReadCloser) error {
+	defer reader.Close()
+	file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, FILE_PERM)
+	if err != nil {
+		return fmt.Errorf("failed to open target file '%s' for extraction: %w", target, err)
+	}
+	defer file.Close()
+
+	// Stream from reader to file in chunks
+	if _, err := io.Copy(file, reader); err != nil {
+		return fmt.Errorf("failed to copy data to file '%s' for extraction: %w", target, err)
+	}
+
 	return nil
 }
 
