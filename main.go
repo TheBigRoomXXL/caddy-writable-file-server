@@ -58,7 +58,7 @@ func (deployer *SiteDeployer) Provision(ctx caddy.Context) error {
 	}
 
 	if deployer.MaxSizeMB == 0 {
-		deployer.MaxSizeMB = 2
+		deployer.MaxSizeMB = 32
 	}
 
 	deployer.maxSizeB = deployer.MaxSizeMB * 1024 * 1024
