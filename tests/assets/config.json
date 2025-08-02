@@ -1,0 +1,55 @@
+{
+    "logging": {
+        "logs": {
+            "default": {
+                "level": "ERROR",
+                "writer": {
+                    "output": "stdout"
+                },
+                "encoder": {
+                    "format": "console"
+                }
+            },
+            "site_deployer": {
+                "level": "DEBUG",
+                "writer": {
+                    "output": "stdout"
+                },
+                "encoder": {
+                    "format": "console"
+                },
+                "include": [
+                    "http.handlers.site_deployer"
+                ]
+            }
+        }
+    },
+    "apps": {
+        "http": {
+            "servers": {
+                "example": {
+                    "listen": [
+                        ":8888"
+                    ],
+                    "routes": [
+                        {
+                            "match": [
+                                {
+                                    "method": [
+                                        "PUT"
+                                    ]
+                                }
+                            ],
+                            "handle": [
+                                {
+                                    "handler": "site_deployer",
+                                    "root": "tests/root/"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}
