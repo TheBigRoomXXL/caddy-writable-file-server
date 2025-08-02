@@ -70,6 +70,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	defer lock.Unlock()
 
 	// Validate HTTP Method
+	// TODO: Support DELETE
 	if r.Method != "PUT" {
 		w.Write([]byte("Only PUT method is allowed"))
 		return caddyhttp.Error(
@@ -77,17 +78,9 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		)
 	}
 
-	// Validate Content-Type
-	if !strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
-		w.Write([]byte("Only 'multipart/form-data' content-type is allowed"))
-		return caddyhttp.Error(
-			http.StatusUnprocessableEntity, fmt.Errorf("unauthorized method: %s", r.Method),
-		)
-	}
-
 	// The following checks are taken directly from the static file module and kept to
 	// ensure we don't miss a dangerous edge-case:
-	// https: //github.com/caddyserver/caddy/blob/a76d005a94ff8ee19fc17f5409b4089c2bfd1a60/modules/caddyhttp/fileserver/staticfiles.go#L264
+	// https://github.com/caddyserver/caddy/blob/a76d005a94ff8ee19fc17f5409b4089c2bfd1a60/modules/caddyhttp/fileserver/staticfiles.go#L264
 	if runtime.GOOS == "windows" {
 		// reject paths with Alternate Data Streams (ADS)
 		if strings.Contains(r.URL.Path, ":") {
@@ -103,27 +96,90 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 
 	repl := r.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
 	root := repl.ReplaceAll(deployer.Root, ".")
+	// End of copied code
 
-	if !strings.HasSuffix(r.URL.Path, "/") {
-		w.Write([]byte("Path must point to a directory."))
-		return caddyhttp.Error(
-			http.StatusUnprocessableEntity, errors.New("path  must point to a directory"),
-		)
-	}
-
-	targetDirectory := caddyhttp.SanitizedPathJoin(root, r.URL.Path)
-	if targetDirectory == root {
-		targetDirectory += "/" // Side effect of SanitizedPathJoin
+	target := caddyhttp.SanitizedPathJoin(root, r.URL.Path)
+	if target == root {
+		target += "/" // Side effect of SanitizedPathJoin
 	}
 
 	if c := deployer.logger.Check(zapcore.DebugLevel, "sanitized path join"); c != nil {
 		c.Write(
 			zap.String("site_root", root),
 			zap.String("request_path", r.URL.Path),
-			zap.String("result", targetDirectory),
+			zap.String("result", target),
 		)
 	}
 
+	// We extract the body to a temporary location next to target.
+	// We use a location next to the target instead of /tmp/ because it can be mounted on
+	// a different file system wich prohibit atomic renames
+	isDirectory := strings.HasSuffix(r.URL.Path, "/")
+	targetTemp := getTempPath(target)
+	var err error
+	if isDirectory {
+		err = extractDirectory(targetTemp, r.Body, r.Header.Get("content-type"))
+	} else {
+		err = extractFile(targetTemp, r.Body)
+	}
+
+	if err != nil {
+		w.Write([]byte("Could not retrieve artifact from body"))
+		return caddyhttp.Error(
+			http.StatusUnprocessableEntity,
+			fmt.Errorf("could not retrieve artifact from body: %w", err),
+		)
+	}
+
+	// Backup target or create it and its parents if new
+	_, err = os.Stat(target)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return caddyhttp.Error(
+			http.StatusInternalServerError,
+			fmt.Errorf("could not stat target directory: %w", err),
+		)
+	}
+
+	if err != nil && errors.Is(err, os.ErrNotExist) {
+		// Target diresctory does not exist, we make it with its parent (using default permission).
+		targetDirectory := target
+		if !isDirectory {
+			targetDirectory = filepath.Dir(target)
+		}
+		if err := os.MkdirAll(targetDirectory, 0755); err != nil {
+			return caddyhttp.Error(
+				http.StatusInternalServerError,
+				fmt.Errorf("failed to create target directory %s: %w", target, err),
+			)
+		}
+	} else {
+		// Target directory exist, we create a backup from it.
+		targetBackup := getBackupPath(target)
+		err := os.Rename(target, targetBackup)
+		if err != nil {
+			return caddyhttp.Error(
+				http.StatusInternalServerError,
+				fmt.Errorf("failed to backup target directory %s: %w", target, err),
+			)
+		}
+		defer cleanupTarget(deployer.logger, targetBackup)
+	}
+
+	// Swap target directory with artifact using atomic `Rename`
+	err = os.Rename(targetTemp, target)
+	if err != nil {
+		_ = deployer.rollback(target)
+		return caddyhttp.Error(
+			http.StatusInternalServerError,
+			fmt.Errorf("failed to swap temporary directoy (%s) with target (%s): %w", targetTemp, target, err),
+		)
+	}
+
+	return nil
+
+}
+
+func (deployer *SiteDeployer) extractDirectory(target string, w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	// Parse the form data
 	if err := r.ParseMultipartForm(deployer.maxSizeB); err != nil {
 		return caddyhttp.Error(
@@ -133,11 +189,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 
 	artifact, _, err := r.FormFile("artifact")
 	if err != nil {
-		w.Write([]byte("Could not retrieve artifact from body"))
-		return caddyhttp.Error(
-			http.StatusUnprocessableEntity,
-			fmt.Errorf("could not retrieve artifact from body: %w", err),
-		)
+		return err
 	}
 	defer artifact.Close()
 
@@ -154,16 +206,16 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 
 	// Extract tarball to temporary directory
 	// Using a folder next to the target ensure it is on the same file system, allowing us
-	// to use os.Rename for atomic update. (/tmp is often on a RAM fil system)
-	targetParent := filepath.Dir(strings.TrimSuffix(targetDirectory, "/"))
-	tempDir, err := os.MkdirTemp(targetParent, filepath.Base(targetDirectory))
+	// to use os.Rename for atomic update. (/tmp is often on a RAM file system)
+	targetParent := filepath.Dir(strings.TrimSuffix(target, "/"))
+	tempDir, err := os.MkdirTemp(targetParent, filepath.Base(target))
 	if err != nil {
 		return caddyhttp.Error(
 			http.StatusInternalServerError,
 			fmt.Errorf("could not create temporary directory for extraction: %w", err),
 		)
 	}
-	defer cleanupDirectory(deployer.logger, tempDir)
+	defer cleanupTarget(deployer.logger, tempDir)
 	fmt.Println(tempDir)
 	tarReader := tar.NewReader(gzipReader)
 	err = extractTar(deployer.logger, tarReader, tempDir)
@@ -174,57 +226,17 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		)
 	}
 
-	// Backup target directory or create it and its parents if new
-	_, err = os.Stat(targetDirectory)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return caddyhttp.Error(
-			http.StatusInternalServerError,
-			fmt.Errorf("could not stat targetDirectory: %w", err),
-		)
-	}
-
-	if err != nil && errors.Is(err, os.ErrNotExist) {
-		// Target directory does not exist, we make it with its parent (using default permission).
-		if err := os.MkdirAll(targetDirectory, 0755); err != nil {
-			return caddyhttp.Error(
-				http.StatusInternalServerError,
-				fmt.Errorf("failed to create target directory %s: %w", targetDirectory, err),
-			)
-		}
-	} else {
-		// Target directory exist, we create a backup from it.
-		backupDirectory := getBackupPath(targetDirectory)
-		err := os.Rename(targetDirectory, backupDirectory)
-		if err != nil {
-			return caddyhttp.Error(
-				http.StatusInternalServerError,
-				fmt.Errorf("failed to backup target directory %s: %w", targetDirectory, err),
-			)
-		}
-		defer cleanupDirectory(deployer.logger, backupDirectory)
-	}
-
-	// Swap target directory with artifact using atomic `Rename`
-	err = os.Rename(tempDir, targetDirectory)
-	if err != nil {
-		_ = deployer.rollback(targetDirectory)
-		return caddyhttp.Error(
-			http.StatusInternalServerError,
-			fmt.Errorf("failed to swap temporary directoy (%s) with target (%s): %w", tempDir, targetDirectory, err),
-		)
-	}
-
 	return nil
 }
 
-func (deployer *SiteDeployer) rollback(targetDirectory string) error {
+func (deployer *SiteDeployer) rollback(target string) error {
 	// Check backup exist
-	backupDirectory := getBackupPath(targetDirectory)
-	if _, err := os.Stat(backupDirectory); err != nil {
+	targetbackup := getBackupPath(target)
+	if _, err := os.Stat(targetbackup); err != nil {
 		if c := deployer.logger.Check(zapcore.ErrorLevel, "backup does not exist during rollback"); c != nil {
 			c.Write(
-				zap.String("targetDirectory", targetDirectory),
-				zap.String("backupDirectory", backupDirectory),
+				zap.String("target", target),
+				zap.String("targetbackup", targetbackup),
 				zap.String("error", fmt.Sprintf("could not stat backup directory: %s", err.Error())),
 			)
 		}
@@ -232,12 +244,12 @@ func (deployer *SiteDeployer) rollback(targetDirectory string) error {
 	}
 
 	// First we cleanup the targetDirectory if it still exist
-	err := os.RemoveAll(targetDirectory)
+	err := os.RemoveAll(target)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		if c := deployer.logger.Check(zapcore.ErrorLevel, "could not cleanup target ddirectory during rollback"); c != nil {
 			c.Write(
-				zap.String("targetDirectory", targetDirectory),
-				zap.String("backupDirectory", backupDirectory),
+				zap.String("target", target),
+				zap.String("targetbackup", targetbackup),
 				zap.String("error", fmt.Sprintf("could not clean target directory: %s", err.Error())),
 			)
 		}
@@ -245,12 +257,12 @@ func (deployer *SiteDeployer) rollback(targetDirectory string) error {
 	}
 
 	// Actually restore the original directory
-	err = os.Rename(backupDirectory, targetDirectory)
+	err = os.Rename(targetbackup, target)
 	if err != nil {
 		if c := deployer.logger.Check(zapcore.ErrorLevel, "could not restore backup during rollback"); c != nil {
 			c.Write(
-				zap.String("targetDirectory", targetDirectory),
-				zap.String("backupDirectory", backupDirectory),
+				zap.String("target", target),
+				zap.String("targetbackup", targetbackup),
 				zap.String("error", fmt.Sprintf("could not rename backup directory: %s", err.Error())),
 			)
 		}

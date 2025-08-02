@@ -83,18 +83,51 @@ func extractTar(logger *zap.Logger, tarReader *tar.Reader, path string) error {
 	return nil
 }
 
-func cleanupDirectory(logger *zap.Logger, directory string) {
-	err := os.RemoveAll(directory)
+// TODO: implementation
+func extractFile(target string, reader io.ReadCloser) error {
+	return nil
+}
+
+// TODO: implementation
+func extractDirectory(target string, reader io.ReadCloser, contentType string) error {
+	return nil
+}
+
+// Remove a target file or directory. It is ok for the target to not exist. Only log if it enconter an error.
+func cleanupTarget(logger *zap.Logger, target string) {
+	err := os.RemoveAll(target)
 	if err != nil {
-		if c := logger.Check(zapcore.WarnLevel, "failed to clean up directory"); c != nil {
+		if c := logger.Check(zapcore.WarnLevel, "failed to clean up target"); c != nil {
 			c.Write(
-				zap.String("directory", directory),
+				zap.String("target", target),
 				zap.String("error", err.Error()),
 			)
 		}
 	}
 }
 
-func getBackupPath(directory string) string {
-	return strings.TrimSuffix(directory, "/") + ".backup/"
+// Return a backup path next to the target.
+//
+// Using a path next to the target ensure it is on the same file system, allowing us
+// to use os.Rename for atomic update. (/tmp is often on a RAM file system)
+//
+// This function does not check if the temporary path is already used.
+func getBackupPath(target string) string {
+	if strings.HasSuffix(target, "/") {
+		return strings.TrimSuffix(target, "/") + ".backup/"
+	}
+	return target + ".backup"
+}
+
+// Return a temporary path next to the target.
+//
+// Using a path next to the target ensure it is on the same file system, allowing us
+// to use os.Rename for atomic update. (/tmp is often on a RAM file system)
+//
+// This function does not check if the temporary path is already used.
+func getTempPath(target string) string {
+	if strings.HasSuffix(target, "/") {
+		return strings.TrimSuffix(target, "/") + ".tmp/"
+	}
+	return target + ".tmp"
 }
