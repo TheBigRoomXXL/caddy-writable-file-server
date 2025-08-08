@@ -24,8 +24,6 @@ var lock sync.Mutex = sync.Mutex{}
 
 func init() {
 	caddy.RegisterModule(SiteDeployer{})
-	// TODO: on init, restore backup if exist and delete tmp
-	// TODO: add transaction ID for better log and non-gessable path
 	// TODO: add tests
 }
 
@@ -75,27 +73,18 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 
 	id := GetId()
 
-	// Validate HTTP Method
-	// TODO: Support DELETE
-	if r.Method != "PUT" {
-		w.Write([]byte("Only PUT method is allowed\n"))
-		return deployer.LoggedError(
-			http.StatusMethodNotAllowed, fmt.Errorf("unauthorized method: %s", r.Method),
-		)
-	}
-
 	// The following checks are taken directly from the static file module and kept to
 	// ensure we don't miss a dangerous edge-case:
 	// https://github.com/caddyserver/caddy/blob/a76d005a94ff8ee19fc17f5409b4089c2bfd1a60/modules/caddyhttp/fileserver/staticfiles.go#L264
 	if runtime.GOOS == "windows" {
 		// reject paths with Alternate Data Streams (ADS)
 		if strings.Contains(r.URL.Path, ":") {
-			return deployer.LoggedError(http.StatusBadRequest, fmt.Errorf("illegal ADS path"))
+			return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("illegal ADS path"))
 		}
 		// reject paths with "8.3" short names
 		trimmedPath := strings.TrimRight(r.URL.Path, ". ") // Windows ignores trailing dots and spaces, sigh
 		if len(path.Base(trimmedPath)) <= 12 && strings.Contains(trimmedPath, "~") {
-			return deployer.LoggedError(http.StatusBadRequest, fmt.Errorf("illegal short name"))
+			return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("illegal short name"))
 		}
 		// both of those could bypass file hiding or possibly leak information even if the file is not hidden
 	}
@@ -117,6 +106,32 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		)
 	}
 
+	// Root request to handler
+	var err *ErrorDeployement
+	switch r.Method {
+	case http.MethodPut:
+		err = HandlePut(id, target, r)
+	case http.MethodDelete:
+		fmt.Println("It's the weekend")
+	default:
+		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("unauthorized method: %s", r.Method))
+	}
+
+	if err != nil {
+		level := zapcore.WarnLevel
+		if err.StatusCode >= 500 {
+			level = zapcore.ErrorLevel
+			err.Public = ""
+		}
+		deployer.logger.Log(level, err.Private.Error(), zap.Int("statusCode", err.StatusCode))
+		w.Write([]byte(err.Public))
+		return caddyhttp.Error(err.StatusCode, err.Private)
+	}
+
+	return nil
+}
+
+func HandlePut(id string, target string, r *http.Request) *ErrorDeployement {
 	// If the target directory does not exist, we create it
 	isDirectory := strings.HasSuffix(r.URL.Path, "/")
 	targetDirectory := target
@@ -124,10 +139,11 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		targetDirectory = filepath.Dir(target)
 	}
 	if err := os.MkdirAll(targetDirectory, DIR_PERM); err != nil {
-		return deployer.LoggedError(
+		return &ErrorDeployement{
 			http.StatusInternalServerError,
 			fmt.Errorf("failed to create target directory %s: %w", target, err),
-		)
+			"",
+		}
 	}
 
 	// We extract the body to a temporary location
@@ -138,22 +154,22 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	} else {
 		err = extractFile(targetTemp, r.Body)
 	}
-
 	if err != nil {
-		w.Write([]byte("Could not copy artifact from body\n"))
-		return deployer.LoggedError(
+		return &ErrorDeployement{
 			http.StatusUnprocessableEntity,
-			fmt.Errorf("could not copy artifact from body: %w", err),
-		)
+			fmt.Errorf("could not extract artifact from body: %w", err),
+			"Could not extract artifact from body\n",
+		}
 	}
 
 	// Check the state of the target
 	_, err = os.Stat(target)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return deployer.LoggedError(
+		return &ErrorDeployement{
 			http.StatusInternalServerError,
 			fmt.Errorf("could not stat target: %w", err),
-		)
+			"",
+		}
 	}
 
 	// We backup target if it already exist
@@ -161,10 +177,11 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		targetBackup := getBackupPath(id, target)
 		err = os.Rename(target, targetBackup)
 		if err != nil {
-			return deployer.LoggedError(
+			return &ErrorDeployement{
 				http.StatusInternalServerError,
 				fmt.Errorf("failed to backup target directory %s: %w", target, err),
-			)
+				"",
+			}
 		}
 		defer func() {
 			// We only clear the backup if everything happened without issues
@@ -183,19 +200,8 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		if errRollback != nil {
 			err = fmt.Errorf("failed to swap temporary directoy (%s) with target (%s): %w AND failed to rollback: %w", targetTemp, target, err, err)
 		}
-		return deployer.LoggedError(http.StatusInternalServerError, err)
+		return &ErrorDeployement{http.StatusInternalServerError, err, ""}
 	}
 
 	return nil
-
-}
-
-func (deployer *SiteDeployer) LoggedError(statusCode int, err error) caddyhttp.HandlerError {
-	level := zapcore.WarnLevel
-	if statusCode >= 500 {
-		level = zapcore.ErrorLevel
-	}
-	deployer.logger.Log(level, err.Error(), zap.Int("statusCode", statusCode))
-
-	return caddyhttp.Error(statusCode, err)
 }
