@@ -36,7 +36,8 @@
                             "match": [
                                 {
                                     "method": [
-                                        "PUT"
+                                        "PUT",
+                                        "DELETE"
                                     ]
                                 }
                             ],

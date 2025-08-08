@@ -59,8 +59,6 @@ func rollback(id string, target string) error {
 		return fmt.Errorf("could not restore backup during rollback: %w", err)
 	}
 
-	// Finally we remove the backup
-	os.RemoveAll(targetbackup)
 	return nil
 }
 

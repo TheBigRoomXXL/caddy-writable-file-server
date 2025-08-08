@@ -112,7 +112,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	case http.MethodPut:
 		err = HandlePut(id, target, r)
 	case http.MethodDelete:
-		fmt.Println("It's the weekend")
+		err = HandleDelete(id, target, r)
 	default:
 		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("unauthorized method: %s", r.Method))
 	}
@@ -203,5 +203,37 @@ func HandlePut(id string, target string, r *http.Request) *ErrorDeployement {
 		return &ErrorDeployement{http.StatusInternalServerError, err, ""}
 	}
 
+	return nil
+}
+
+func HandleDelete(id string, target string, r *http.Request) *ErrorDeployement {
+	// Check the state of the target
+	_, err := os.Stat(target)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return &ErrorDeployement{
+			http.StatusInternalServerError,
+			fmt.Errorf("could not stat target: %w", err),
+			"",
+		}
+	}
+
+	// If it does not exists return 404
+	if errors.Is(err, os.ErrNotExist) {
+		return &ErrorDeployement{
+			http.StatusNotFound,
+			fmt.Errorf("trying to delete a target that does not exist: %w", err),
+			"Not Found.",
+		}
+	}
+
+	// Otherwise we just delete the target
+	err = os.RemoveAll(target)
+	if err != nil {
+		return &ErrorDeployement{
+			http.StatusInternalServerError,
+			fmt.Errorf("failed to delete target: %w", err),
+			"",
+		}
+	}
 	return nil
 }
