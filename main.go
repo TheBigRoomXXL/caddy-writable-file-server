@@ -24,7 +24,9 @@ var lock sync.Mutex = sync.Mutex{}
 
 func init() {
 	caddy.RegisterModule(SiteDeployer{})
-	// TODO: on init, restore backup if exist.
+	// TODO: on init, restore backup if exist and delete tmp
+	// TODO: add transaction ID for better log and non-gessable path
+	// TODO: investigate copyFS
 }
 
 type SiteDeployer struct {

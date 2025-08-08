@@ -25,7 +25,7 @@ func extractFile(target string, reader io.ReadCloser) error {
 	return nil
 }
 
-// TODO: implementation
+// TODO: implementation extractDirectory
 func extractDirectory(target string, reader io.ReadCloser, contentType string) error {
 	return nil
 }
