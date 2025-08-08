@@ -5,35 +5,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"strings"
 )
 
 const ID_LENGTH = 8
-
-// create target and copy the content of reader into it.
-func extractFile(target string, reader io.ReadCloser) error {
-	defer reader.Close()
-	file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, FILE_PERM)
-	if err != nil {
-		return fmt.Errorf("failed to open target file '%s' for extraction: %w", target, err)
-	}
-	defer file.Close()
-
-	// Stream from reader to file in chunks
-	if _, err := io.Copy(file, reader); err != nil {
-		return fmt.Errorf("failed to copy data to file '%s' for extraction: %w", target, err)
-	}
-
-	return nil
-}
-
-// TODO: implementation extractDirectory
-func extractDirectory(target string, reader io.ReadCloser, contentType string) error {
-	return nil
-}
 
 // Delete any file or directory that was deployed and try to restore backup
 func rollback(id string, target string) error {

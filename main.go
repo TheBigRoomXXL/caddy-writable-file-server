@@ -24,7 +24,9 @@ var lock sync.Mutex = sync.Mutex{}
 
 func init() {
 	caddy.RegisterModule(SiteDeployer{})
-	// TODO: add tests
+	// TODO: unit tests
+	// TODO: integration tests (add file, add tar, add tar.gz, delete file, delete directory)
+	// TODO: only use ErrorDeployement on not 500 errors
 }
 
 type SiteDeployer struct {
@@ -148,22 +150,18 @@ func HandlePut(id string, target string, r *http.Request) *ErrorDeployement {
 
 	// We extract the body to a temporary location
 	targetTemp := getTempPath(id, target)
-	var err error
+	var errExtract *ErrorDeployement
 	if isDirectory {
-		err = extractDirectory(targetTemp, r.Body, r.Header.Get("content-type"))
+		errExtract = extractDirectory(targetTemp, r.Body, r.Header.Get("content-type"))
 	} else {
-		err = extractFile(targetTemp, r.Body)
+		errExtract = extractFile(targetTemp, r.Body)
 	}
-	if err != nil {
-		return &ErrorDeployement{
-			http.StatusUnprocessableEntity,
-			fmt.Errorf("could not extract artifact from body: %w", err),
-			"Could not extract artifact from body\n",
-		}
+	if errExtract != nil {
+		return errExtract
 	}
 
 	// Check the state of the target
-	_, err = os.Stat(target)
+	_, err := os.Stat(target)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return &ErrorDeployement{
 			http.StatusInternalServerError,
