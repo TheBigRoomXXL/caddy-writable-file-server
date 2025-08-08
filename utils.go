@@ -39,12 +39,16 @@ func extractDirectory(target string, reader io.ReadCloser, contentType string) e
 func rollback(id string, target string) error {
 	// Check backup exist
 	targetbackup := getBackupPath(id, target)
-	if _, err := os.Stat(targetbackup); err != nil {
-		return fmt.Errorf("backup does not exist during rollback: %w", err)
+	_, err := os.Stat(targetbackup)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil // No backup to rollback
+	}
+	if err != nil {
+		return fmt.Errorf("failed to stat backup during rollback: %w", err)
 	}
 
 	// First we cleanup the targetDirectory if it still exist
-	err := os.RemoveAll(target)
+	err = os.RemoveAll(target)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("could not cleanup target ddirectory during rollback: %w", err)
 	}
@@ -57,7 +61,7 @@ func rollback(id string, target string) error {
 
 	// Finally we remove the backup
 	os.RemoveAll(targetbackup)
-	return err
+	return nil
 }
 
 // Return a backup path next to the target.
