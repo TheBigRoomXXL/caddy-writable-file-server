@@ -8,8 +8,8 @@ import (
 
 func TestGetBackupPathDirectory(t *testing.T) {
 	path := "/path/to/dir/"
-	pathBackup := getBackupPath(path)
-	assert.Equal(t, "/path/to/dir.backup/", pathBackup)
+	pathBackup := getBackupPath("teeeeeeest", path)
+	assert.Equal(t, "/path/to/dir.teeeeeeest-backup/", pathBackup)
 }
 
 // TEST: TestGetBackupPathFile

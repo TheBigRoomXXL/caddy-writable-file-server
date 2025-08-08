@@ -26,7 +26,7 @@ func init() {
 	caddy.RegisterModule(SiteDeployer{})
 	// TODO: on init, restore backup if exist and delete tmp
 	// TODO: add transaction ID for better log and non-gessable path
-	// TODO: investigate copyFS
+	// TODO: add tests
 }
 
 type SiteDeployer struct {
@@ -72,6 +72,8 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	// Request are processed sequencially to avoid conflict
 	lock.Lock()
 	defer lock.Unlock()
+
+	id := GetId()
 
 	// Validate HTTP Method
 	// TODO: Support DELETE
@@ -128,10 +130,8 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		)
 	}
 
-	// We extract the body to a temporary location next to target.
-	// We use a location next to the target instead of /tmp/ because it can be mounted on
-	// a different file system wich prohibit atomic renames
-	targetTemp := getTempPath(target)
+	// We extract the body to a temporary location
+	targetTemp := getTempPath(id, target)
 	var err error
 	if isDirectory {
 		err = extractDirectory(targetTemp, r.Body, r.Header.Get("content-type"))
@@ -147,7 +147,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		)
 	}
 
-	// We backup target if it already exist
+	// Check the state of the target
 	_, err = os.Stat(target)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return deployer.LoggedError(
@@ -156,23 +156,30 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		)
 	}
 
+	// We backup target if it already exist
 	if err == nil {
-		targetBackup := getBackupPath(target)
-		err := os.Rename(target, targetBackup)
+		targetBackup := getBackupPath(id, target)
+		err = os.Rename(target, targetBackup)
 		if err != nil {
 			return deployer.LoggedError(
 				http.StatusInternalServerError,
 				fmt.Errorf("failed to backup target directory %s: %w", target, err),
 			)
 		}
-		defer os.RemoveAll(targetBackup)
+		defer func() {
+			// We only clear the backup if everything happened without issues
+			// (rollback takes care of cleaning up the backup if successfull)
+			if err == nil {
+				os.RemoveAll(targetBackup)
+			}
+		}()
 	}
 
 	// Swap target directory with artifact using atomic `Rename`
 	err = os.Rename(targetTemp, target)
 	if err != nil {
 		err := fmt.Errorf("failed to swap temporary directoy (%s) with target (%s): %w", targetTemp, target, err)
-		errRollback := rollback(target)
+		errRollback := rollback(id, target)
 		if errRollback != nil {
 			err = fmt.Errorf("failed to swap temporary directoy (%s) with target (%s): %w AND failed to rollback: %w", targetTemp, target, err, err)
 		}
