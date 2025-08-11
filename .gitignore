@@ -33,3 +33,6 @@ payload*
 site/
 configs/
 tests/root
+tests/results
+tests/assets/tested
+tests/caddy-*.log

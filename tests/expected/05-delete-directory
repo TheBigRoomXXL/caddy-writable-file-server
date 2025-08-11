@@ -1,0 +1,8 @@
+tests/root/
+└── tested
+    ├── empty-file
+    │   └── empty.txt
+    ├── no-file
+    └── tested.txt
+
+4 directories, 2 files

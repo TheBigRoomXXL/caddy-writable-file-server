@@ -4,14 +4,14 @@
 
 ## Dev setup
 
-Run caddy with the plugin
+Run caddy during dev
 ```bash
 xcaddy run
 ```
 
 Build caddy with the plugin
 ```bash
-xcaddy build
+xcaddy build --with  github.com/thebigroomxxl/caddy-site-deployer
 ```
 
 Once running, update caddy config

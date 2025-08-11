@@ -1,0 +1,10 @@
+tests/root/
+└── tested
+    ├── empty-file
+    │   └── empty.txt
+    ├── no-file
+    ├── tested.txt
+    └── with-file
+        └── deep.txt
+
+5 directories, 3 files
