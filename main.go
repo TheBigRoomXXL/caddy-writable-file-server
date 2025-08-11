@@ -27,6 +27,7 @@ func init() {
 	// TODO: unit tests
 	// TODO: integration tests (add file, add tar, add tar.gz, delete file, delete directory)
 	// TODO: only use ErrorDeployement on not 500 errors
+	// TODO: add end of line on error message
 }
 
 type SiteDeployer struct {
@@ -112,14 +113,15 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	var err *ErrorDeployement
 	switch r.Method {
 	case http.MethodPut:
-		err = HandlePut(id, target, r)
+		err = deployer.HandlePut(id, target, r)
 	case http.MethodDelete:
-		err = HandleDelete(id, target, r)
+		err = deployer.HandleDelete(id, target, r)
 	default:
 		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("unauthorized method: %s", r.Method))
 	}
 
 	if err != nil {
+		deployer.logger.Log(zapcore.DebugLevel, err.Error())
 		level := zapcore.WarnLevel
 		if err.StatusCode >= 500 {
 			level = zapcore.ErrorLevel
@@ -129,11 +131,12 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		w.Write([]byte(err.Public))
 		return caddyhttp.Error(err.StatusCode, err.Private)
 	}
+	deployer.logger.Log(zapcore.DebugLevel, "err is fucking null")
 
 	return nil
 }
 
-func HandlePut(id string, target string, r *http.Request) *ErrorDeployement {
+func (deployer *SiteDeployer) HandlePut(id string, target string, r *http.Request) *ErrorDeployement {
 	// If the target directory does not exist, we create it
 	isDirectory := strings.HasSuffix(r.URL.Path, "/")
 	targetDirectory := target
@@ -141,6 +144,7 @@ func HandlePut(id string, target string, r *http.Request) *ErrorDeployement {
 		targetDirectory = filepath.Dir(target)
 	}
 	if err := os.MkdirAll(targetDirectory, DIR_PERM); err != nil {
+		// TODO: return 400 on directory = existing file
 		return &ErrorDeployement{
 			http.StatusInternalServerError,
 			fmt.Errorf("failed to create target directory %s: %w", target, err),
@@ -156,9 +160,13 @@ func HandlePut(id string, target string, r *http.Request) *ErrorDeployement {
 	} else {
 		errExtract = extractFile(targetTemp, r.Body)
 	}
+
 	if errExtract != nil {
+		deployer.logger.Log(zapcore.DebugLevel, errExtract.Error())
 		return errExtract
 	}
+
+	deployer.logger.Log(zapcore.DebugLevel, " errExtract is nil")
 
 	// Check the state of the target
 	_, err := os.Stat(target)
@@ -204,7 +212,7 @@ func HandlePut(id string, target string, r *http.Request) *ErrorDeployement {
 	return nil
 }
 
-func HandleDelete(id string, target string, r *http.Request) *ErrorDeployement {
+func (deployer *SiteDeployer) HandleDelete(id string, target string, r *http.Request) *ErrorDeployement {
 	// Check the state of the target
 	_, err := os.Stat(target)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {

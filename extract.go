@@ -96,7 +96,11 @@ func extractTar(target string, reader io.Reader) *ErrorDeployement {
 
 		// Prevent path traversal attacks
 		if !strings.HasPrefix(targetPath, filepath.Clean(target)+string(os.PathSeparator)) {
-			return nil
+			return &ErrorDeployement{
+				http.StatusInternalServerError,
+				fmt.Errorf("security error: path traversal: %w", err),
+				"",
+			}
 		}
 
 		switch hdr.Typeflag {
