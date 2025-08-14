@@ -14,7 +14,7 @@ if [ ! -f "$CADDY_PATH" ]; then
 fi
 
 # Start caddy in the backgound
-./caddy run > tests/caddy-stdout.log 2> tests/caddy-stderr.log &
+./caddy run --config tests/assets/config.json > tests/caddy-stdout.log 2> tests/caddy-stderr.log &
 CADDY_PID=$!
 
 # Ensure everything is cleaned on exit
@@ -27,9 +27,6 @@ trap cleanup EXIT
 # Clean the test directories
 rm -rf tests/root/*
 mkdir -p tests/results/
-
-# Load the test config into caddy
-curl http://localhost:2019/load -H "Content-Type: application/json" -d @tests/assets/config.json
 
 # Prepare assert func
 assert_success() {
@@ -44,6 +41,7 @@ assert_success() {
   # Cleanup after test
   rm -rf tests/root/*
 }
+
 
 
 # ╔═══════════════════════════════════════════╗
