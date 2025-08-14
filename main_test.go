@@ -3,13 +3,12 @@ package caddy_site_deployer
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -18,6 +17,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
+
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║                                  Fixtures                                    ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
 
 func newTestSiteDeployer() *SiteDeployer {
 	tmp, err := os.MkdirTemp("", "caddy-site-deployer-test-")
@@ -32,29 +35,28 @@ func newTestSiteDeployer() *SiteDeployer {
 	}
 }
 
-func newMultipartFormFromFile(filePath string) io.Reader {
-	bodyWriter := new(bytes.Buffer)
-	formWriter := multipart.NewWriter(bodyWriter)
-	formWriter.SetBoundary("DIVNEKSNXXMD")
-	defer formWriter.Close()
-
-	file, err := os.Open(filePath)
+func newFile() io.ReadCloser {
+	file, err := os.Open("tests/assets/test.txt")
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
+	return file
+}
 
-	part, err := formWriter.CreateFormFile("artifact", filepath.Base(filePath))
+func newTar() io.ReadCloser {
+	file, err := os.Open("tests/assets/test.tar")
 	if err != nil {
 		panic(err)
 	}
+	return file
+}
 
-	_, err = io.Copy(part, file)
+func newTarGz() io.ReadCloser {
+	file, err := os.Open("tests/assets/test.tar.gz")
 	if err != nil {
 		panic(err)
 	}
-
-	return bodyWriter
+	return file
 }
 
 type MockHandler struct {
@@ -62,10 +64,13 @@ type MockHandler struct {
 
 func (m *MockHandler) ServeHTTP(http.ResponseWriter, *http.Request) error { return nil }
 
-func TestOnlyPUTAllowed(t *testing.T) {
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║                               Invalid Requests                               ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+func TestOnlyPUTAndDeleteAllowed(t *testing.T) {
 	var tests = []string{
 		http.MethodGet,
-		http.MethodDelete,
 		http.MethodHead,
 		http.MethodPatch,
 		http.MethodPost,
@@ -74,8 +79,10 @@ func TestOnlyPUTAllowed(t *testing.T) {
 
 	for _, method := range tests {
 		t.Run(method, func(t *testing.T) {
+			ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+			r, _ := http.NewRequestWithContext(ctx, method, "/", bytes.NewBuffer([]byte{}))
+
 			w := httptest.NewRecorder()
-			r, _ := http.NewRequest(method, "/", nil)
 
 			err := deployer.ServeHTTP(w, r, &MockHandler{})
 			errHandler, ok := err.(caddyhttp.HandlerError)
@@ -83,34 +90,7 @@ func TestOnlyPUTAllowed(t *testing.T) {
 			assert.NotNil(t, err)
 			assert.True(t, ok)
 			assert.Equal(t, http.StatusMethodNotAllowed, errHandler.StatusCode)
-			assert.Equal(t, "Only PUT method is allowed", w.Body.String())
-		})
-	}
-}
-
-func TestOnlyMultipartFormaDataIsAllowed(t *testing.T) {
-	var tests = []string{
-		"text/plain",
-		"text/html",
-		"text/xml",
-		"application/json",
-		"application/octet-stream",
-	}
-	deployer := newTestSiteDeployer()
-
-	for _, contentType := range tests {
-		t.Run(contentType, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			r, _ := http.NewRequest("PUT", "/", nil)
-			r.Header.Add("Content-Type", contentType)
-
-			err := deployer.ServeHTTP(w, r, &MockHandler{})
-			errHandler, ok := err.(caddyhttp.HandlerError)
-
-			assert.NotNil(t, err)
-			assert.True(t, ok)
-			assert.Equal(t, http.StatusUnprocessableEntity, errHandler.StatusCode)
-			assert.Equal(t, "Only 'multipart/form-data' content-type is allowed", w.Body.String())
+			assert.Equal(t, fmt.Sprintf("Unauthorized method: %s\n", method), w.Body.String())
 		})
 	}
 }
@@ -123,9 +103,11 @@ func TestRejectWindowADSPath(t *testing.T) {
 	pathWithADS := `\Path\To\Your\File.txt:hiddenstream.txt`
 
 	deployer := newTestSiteDeployer()
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "PUT", pathWithADS, bytes.NewBuffer([]byte{}))
+	r.Header.Add("Content-Type", "application/octet-stream")
+
 	w := httptest.NewRecorder()
-	r, _ := http.NewRequest("PUT", pathWithADS, nil)
-	r.Header.Add("Content-Type", "multipart/form-data")
 
 	err := deployer.ServeHTTP(w, r, &MockHandler{})
 	errHandler, ok := err.(caddyhttp.HandlerError)
@@ -135,81 +117,99 @@ func TestRejectWindowADSPath(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, errHandler.StatusCode)
 }
 
-func TestRejectEmptyBody(t *testing.T) {
+// TODO: TestRejectBodyTooLarge
+
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║                               Upload Directory                               ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+func TestUploadDirectoryTar(t *testing.T) {
 	deployer := newTestSiteDeployer()
-	w := httptest.NewRecorder()
-	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
-	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", nil)
-	r.Header.Add("Content-Type", "multipart/form-data")
-
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	errHandler, ok := err.(caddyhttp.HandlerError)
-
-	assert.NotNil(t, err)
-	assert.True(t, ok)
-	assert.Equal(t, http.StatusBadRequest, errHandler.StatusCode)
-}
-
-func TestRejectMissingArtifact(t *testing.T) {
-	deployer := newTestSiteDeployer()
-	w := httptest.NewRecorder()
-
-	bodyWriter := new(bytes.Buffer)
-	formWriter := multipart.NewWriter(bodyWriter)
-	formWriter.WriteField("not-artifact", "some-date")
-	formWriter.Close()
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", newTar())
+	r.Header.Add("Content-Type", "application/x-tar")
 
-	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", bodyWriter)
-	r.Header.Add("Content-Type", "multipart/form-data; boundary="+formWriter.Boundary())
-
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	errHandler, ok := err.(caddyhttp.HandlerError)
-
-	assert.NotNil(t, err)
-	assert.True(t, ok)
-	assert.Equal(t, http.StatusUnprocessableEntity, errHandler.StatusCode)
-	assert.Equal(t, "Could not retrieve artifact from body", w.Body.String())
-}
-
-func TestUploadFileInsteadOfDirectory(t *testing.T) {
-	deployer := newTestSiteDeployer()
-	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	w := httptest.NewRecorder()
-	body := newMultipartFormFromFile("test_assets/index.txt")
-	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", body)
-	r.Header.Add("Content-Type", "multipart/form-data; boundary=DIVNEKSNXXMD")
 
 	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	errHandler, ok := err.(caddyhttp.HandlerError)
-
-	assert.NotNil(t, err)
-	assert.True(t, ok)
-	assert.Equal(t, http.StatusBadRequest, errHandler.StatusCode)
-}
-
-func TestUploadDirectory(t *testing.T) {
-	deployer := newTestSiteDeployer()
-	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
-	w := httptest.NewRecorder()
-	body := newMultipartFormFromFile("test_assets/artifact-01.tar.gz")
-	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", body)
-	r.Header.Add("Content-Type", "multipart/form-data; boundary=DIVNEKSNXXMD")
-
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
-
 	assert.Nil(t, err)
-	assert.Equal(t, 200, w.Result().StatusCode)
-
-	deployedArtifact, err := os.Open(deployer.Root + "/index.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer deployedArtifact.Close()
-	content, err := io.ReadAll(deployedArtifact)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assert.Equal(t, "Hi. What are you doing here?\n", string(content))
 }
+
+func TestUploadDirectoryTarGz(t *testing.T) {
+	deployer := newTestSiteDeployer()
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", newTarGz())
+	r.Header.Add("Content-Type", "application/x-tar+gzip")
+
+	w := httptest.NewRecorder()
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	assert.Nil(t, err)
+}
+
+func TestUploadDirectoryWithEmptyBody(t *testing.T) {
+	deployer := newTestSiteDeployer()
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", bytes.NewBuffer([]byte{}))
+	r.Header.Add("Content-Type", "application/x-tar")
+
+	w := httptest.NewRecorder()
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	fmt.Println("err", err)
+	fmt.Println("w", w.Body)
+	assert.Nil(t, err)
+}
+
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║                                 Upload File                                  ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+func TestUploadFile(t *testing.T) {
+	deployer := newTestSiteDeployer()
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/test.txt", newFile())
+	r.Header.Add("Content-Type", "application/octet-stream")
+
+	w := httptest.NewRecorder()
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	assert.Nil(t, err)
+
+	data, err := os.ReadFile(deployer.Root + "/test.txt")
+	assert.Nil(t, err)
+	assert.Equal(t, "Hi. What are you doing here?\n", string(data))
+}
+
+func TestUploadFileWithEmptyBody(t *testing.T) {
+	deployer := newTestSiteDeployer()
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/test.txt", bytes.NewBuffer([]byte{}))
+	r.Header.Add("Content-Type", "application/octet-stream")
+
+	w := httptest.NewRecorder()
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	assert.Nil(t, err)
+
+	data, err := os.ReadFile(deployer.Root + "/test.txt")
+	assert.Nil(t, err)
+	assert.Equal(t, len(data), 0)
+}
+
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║                               Delete Directory                               ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+// TODO: DeleteDirectory
+
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║                                 Delete File                                  ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+// TODO: DeleteFile

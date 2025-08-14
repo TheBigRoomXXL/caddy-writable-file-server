@@ -60,9 +60,9 @@ func getBackupPath(id string, target string) string {
 // This function does not check if the temporary path is already used.
 func getTempPath(id string, target string) string {
 	if strings.HasSuffix(target, "/") {
-		return strings.TrimSuffix(target, "/") + "." + id + "-tmp/"
+		return strings.TrimSuffix(target, "/") + "-" + id + "-tmp/"
 	}
-	return target + "." + id + "-tmp"
+	return target + "-" + id + "-tmp"
 }
 
 func GetId() string {

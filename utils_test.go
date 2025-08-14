@@ -8,15 +8,27 @@ import (
 
 func TestGetBackupPathDirectory(t *testing.T) {
 	path := "/path/to/dir/"
-	pathBackup := getBackupPath("teeeeeeest", path)
-	assert.Equal(t, "/path/to/dir.teeeeeeest-backup/", pathBackup)
+	pathBackup := getBackupPath("tested", path)
+	assert.Equal(t, "/path/to/dir.tested-backup/", pathBackup)
 }
 
-// TEST: TestGetBackupPathFile
+func TestGetBackupPathFile(t *testing.T) {
+	path := "/path/to/file"
+	pathBackup := getBackupPath("tested", path)
+	assert.Equal(t, "/path/to/file.tested-backup", pathBackup)
+}
 
-// TEST: TestGetTempsPathDirectory
+func TestGetTempPathDirectory(t *testing.T) {
+	path := "/path/to/dir/"
+	pathTmp := getTempPath("tested", path)
+	assert.Equal(t, "/path/to/dir-tested-tmp/", pathTmp)
+}
 
-// TEST: TestGetTempsPathFile
+func TestGetTempPathFile(t *testing.T) {
+	path := "/path/to/file"
+	pathTmp := getTempPath("tested", path)
+	assert.Equal(t, "/path/to/file-tested-tmp", pathTmp)
+}
 
 // TEST: ExtractFile
 

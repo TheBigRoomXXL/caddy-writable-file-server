@@ -13,8 +13,8 @@ import (
 )
 
 // create target and copy the content of reader into it.
-func extractFile(target string, reader io.ReadCloser) *ErrorDeployement {
-	defer reader.Close()
+func extractFile(target string, reader io.Reader) *ErrorDeployement {
+
 	file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, FILE_PERM)
 	if err != nil {
 		return &ErrorDeployement{
@@ -38,9 +38,7 @@ func extractFile(target string, reader io.ReadCloser) *ErrorDeployement {
 }
 
 // TODO: implementation extractDirectory
-func extractDirectory(target string, reader io.ReadCloser, contentType string) *ErrorDeployement {
-	defer reader.Close()
-
+func extractDirectory(target string, reader io.Reader, contentType string) *ErrorDeployement {
 	switch contentType {
 	case "application/x-tar":
 		return extractTar(target, reader)

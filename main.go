@@ -117,7 +117,8 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	case http.MethodDelete:
 		err = deployer.HandleDelete(id, target, r)
 	default:
-		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("unauthorized method: %s", r.Method))
+		w.Write([]byte(fmt.Sprintf("Unauthorized method: %s\n", r.Method)))
+		return caddyhttp.Error(http.StatusMethodNotAllowed, errors.New("unauthorized method"))
 	}
 
 	if err != nil {
@@ -128,7 +129,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 			err.Public = ""
 		}
 		deployer.logger.Log(level, err.Private.Error(), zap.Int("statusCode", err.StatusCode))
-		w.Write([]byte(err.Public))
+		w.Write([]byte(err.Error()))
 		return caddyhttp.Error(err.StatusCode, err.Private)
 	}
 	deployer.logger.Log(zapcore.DebugLevel, "err is fucking null")
@@ -137,6 +138,11 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 }
 
 func (deployer *SiteDeployer) HandlePut(id string, target string, r *http.Request) *ErrorDeployement {
+	// We make sure tu close the body if it is not empty
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
+
 	// If the target directory does not exist, we create it
 	isDirectory := strings.HasSuffix(r.URL.Path, "/")
 	targetDirectory := target
@@ -193,7 +199,11 @@ func (deployer *SiteDeployer) HandlePut(id string, target string, r *http.Reques
 			// We only clear the backup if everything happened without issues
 			// (rollback takes care of cleaning up the backup if successfull)
 			if err == nil {
-				os.RemoveAll(targetBackup)
+
+				err := os.RemoveAll(targetBackup)
+				deployer.logger.Log(zapcore.DebugLevel, "removing", zap.String("targetBackup", targetBackup))
+				deployer.logger.Log(zapcore.DebugLevel, "line 198", zap.Error(err))
+
 			}
 		}()
 	}
@@ -234,6 +244,10 @@ func (deployer *SiteDeployer) HandleDelete(id string, target string, r *http.Req
 
 	// Otherwise we just delete the target
 	err = os.RemoveAll(target)
+	deployer.logger.Log(zapcore.DebugLevel, "removing", zap.String("target", target))
+
+	deployer.logger.Log(zapcore.DebugLevel, "line 238", zap.Error(err))
+
 	if err != nil {
 		return &ErrorDeployement{
 			http.StatusInternalServerError,
