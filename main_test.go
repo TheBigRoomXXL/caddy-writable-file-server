@@ -22,11 +22,23 @@ import (
 // ║                          Fixtures And Helpers                                ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
-func newTestSiteDeployer() *SiteDeployer {
+type T interface {
+	Error(args ...any)
+	Errorf(format string, args ...any)
+	Helper()
+	Cleanup(func())
+}
+
+func newTestSiteDeployer(t T) *SiteDeployer {
 	tmp, err := os.MkdirTemp("", "caddy-site-deployer-test-")
 	if err != nil {
-		log.Fatal(tmp)
+		log.Fatal(err)
 	}
+
+	t.Cleanup(func() {
+		os.RemoveAll(tmp)
+	})
+
 	return &SiteDeployer{
 		Root:      tmp,
 		MaxSizeMB: 1,
