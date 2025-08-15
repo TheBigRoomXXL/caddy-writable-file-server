@@ -19,7 +19,7 @@ import (
 )
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║                                  Fixtures                                    ║
+// ║                          Fixtures And Helpers                                ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 func newTestSiteDeployer() *SiteDeployer {
@@ -63,6 +63,31 @@ type MockHandler struct {
 }
 
 func (m *MockHandler) ServeHTTP(http.ResponseWriter, *http.Request) error { return nil }
+
+func assertFileExist(t *testing.T, path string) {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	if assert.NoError(t, err, "Expected file %q to exist", path) {
+		assert.False(t, info.IsDir(), "Expected %q to be a file, but it is a directory", path)
+	}
+}
+
+func assertDirectoryExist(t *testing.T, path string) {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	if assert.NoError(t, err, "Expected directory %q to exist", path) {
+		assert.True(t, info.IsDir(), "Expected %q to be a directory, but it is a file", path)
+	}
+}
+
+func assertDirectoryEmpty(t *testing.T, path string) {
+	entries, err := os.ReadDir(path)
+	if assert.NoError(t, err, "Error reading directory %q", path) {
+		assert.Empty(t, entries, "Expected directory %q to be empty, but found %d entries", path, len(entries))
+	}
+}
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
 // ║                               Invalid Requests                               ║
@@ -120,51 +145,6 @@ func TestRejectWindowADSPath(t *testing.T) {
 // TODO: TestRejectBodyTooLarge
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║                               Upload Directory                               ║
-// ╚══════════════════════════════════════════════════════════════════════════════╝
-
-func TestUploadDirectoryTar(t *testing.T) {
-	deployer := newTestSiteDeployer()
-
-	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
-	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", newTar())
-	r.Header.Add("Content-Type", "application/x-tar")
-
-	w := httptest.NewRecorder()
-
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	assert.Nil(t, err)
-}
-
-func TestUploadDirectoryTarGz(t *testing.T) {
-	deployer := newTestSiteDeployer()
-
-	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
-	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", newTarGz())
-	r.Header.Add("Content-Type", "application/x-tar+gzip")
-
-	w := httptest.NewRecorder()
-
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	assert.Nil(t, err)
-}
-
-func TestUploadDirectoryWithEmptyBody(t *testing.T) {
-	deployer := newTestSiteDeployer()
-
-	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
-	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", bytes.NewBuffer([]byte{}))
-	r.Header.Add("Content-Type", "application/x-tar")
-
-	w := httptest.NewRecorder()
-
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	fmt.Println("err", err)
-	fmt.Println("w", w.Body)
-	assert.Nil(t, err)
-}
-
-// ╔══════════════════════════════════════════════════════════════════════════════╗
 // ║                                 Upload File                                  ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
@@ -203,13 +183,77 @@ func TestUploadFileWithEmptyBody(t *testing.T) {
 }
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║                               Delete Directory                               ║
+// ║                               Upload Directory                               ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
-// TODO: DeleteDirectory
+func TestUploadDirectoryTar(t *testing.T) {
+	deployer := newTestSiteDeployer()
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", newTar())
+	r.Header.Add("Content-Type", "application/x-tar")
+
+	w := httptest.NewRecorder()
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	assert.Nil(t, err)
+}
+
+func TestUploadDirectoryTarGz(t *testing.T) {
+	deployer := newTestSiteDeployer()
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", newTarGz())
+	r.Header.Add("Content-Type", "application/x-tar+gzip")
+
+	w := httptest.NewRecorder()
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	assert.Nil(t, err)
+
+	// Check directory structure
+	assertDirectoryExist(t, deployer.Root+"/tested/with-file/")
+	assertDirectoryExist(t, deployer.Root+"/tested/empty-file/")
+	assertDirectoryExist(t, deployer.Root+"/tested/no-file/")
+	assertDirectoryEmpty(t, deployer.Root+"/tested/no-file/")
+	assertFileExist(t, deployer.Root+"/tested/empty-file/empty.txt")
+	assertFileExist(t, deployer.Root+"/tested/with-file/deep.txt")
+
+	// Check files content
+	data, err := os.ReadFile(deployer.Root + "/tested/empty-file/empty.txt")
+	assert.Nil(t, err)
+	assert.Equal(t, len(data), 0)
+
+	data, err = os.ReadFile(deployer.Root + "/tested/with-file/deep.txt")
+	assert.Nil(t, err)
+	assert.Equal(t, "deeeep!\n", string(data))
+
+}
+
+func TestUploadDirectoryWithEmptyBody(t *testing.T) {
+	deployer := newTestSiteDeployer()
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "PUT", "/tested/", bytes.NewBuffer([]byte{}))
+	r.Header.Add("Content-Type", "application/x-tar")
+
+	w := httptest.NewRecorder()
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	assert.Nil(t, err)
+
+	assertDirectoryExist(t, deployer.Root+"/tested/")
+	assertDirectoryEmpty(t, deployer.Root+"/tested/")
+}
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
 // ║                                 Delete File                                  ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 // TODO: DeleteFile
+
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║                               Delete Directory                               ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+// TODO: DeleteDirectory
