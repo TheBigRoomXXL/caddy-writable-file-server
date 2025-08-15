@@ -250,10 +250,64 @@ func TestUploadDirectoryWithEmptyBody(t *testing.T) {
 // ║                                 Delete File                                  ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
-// TODO: DeleteFile
+func TestDeleteFile(t *testing.T) {
+	deployer := newTestSiteDeployer()
+
+	err := os.WriteFile(deployer.Root+"/test.txt", []byte("teeest"), FILE_PERM)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "DELETE", "/test.txt", newFile())
+	r.Header.Add("Content-Type", "application/octet-stream")
+
+	w := httptest.NewRecorder()
+
+	err = deployer.ServeHTTP(w, r, &MockHandler{})
+	assert.Nil(t, err)
+
+	_, err = os.Stat(deployer.Root + "/test.txt")
+	assert.ErrorIs(t, err, os.ErrNotExist, deployer.Root+"/test.txt")
+}
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
 // ║                               Delete Directory                               ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
-// TODO: DeleteDirectory
+func DeleteRootDirectory(t *testing.T) {
+	deployer := newTestSiteDeployer()
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "DELETE", "/", newFile())
+	r.Header.Add("Content-Type", "application/octet-stream")
+
+	w := httptest.NewRecorder()
+
+	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	assert.Nil(t, err)
+
+	_, err = os.Stat(deployer.Root)
+	assert.ErrorIs(t, err, os.ErrNotExist, deployer.Root)
+}
+
+func TestDeleteSubDirectory(t *testing.T) {
+	deployer := newTestSiteDeployer()
+
+	err := os.Mkdir(deployer.Root+"/tested/", DIR_PERM)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+	r, _ := http.NewRequestWithContext(ctx, "DELETE", "/tested/", newFile())
+	r.Header.Add("Content-Type", "application/octet-stream")
+
+	w := httptest.NewRecorder()
+
+	err = deployer.ServeHTTP(w, r, &MockHandler{})
+	assert.Nil(t, err)
+
+	_, err = os.Stat(deployer.Root + deployer.Root + "/tested/")
+	assert.ErrorIs(t, err, os.ErrNotExist, deployer.Root+"/test.txt")
+}
