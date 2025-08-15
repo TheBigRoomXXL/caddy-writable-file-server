@@ -143,13 +143,18 @@ func (deployer *SiteDeployer) HandlePut(id string, target string, r *http.Reques
 		defer r.Body.Close()
 	}
 
+	isDirectory := strings.HasSuffix(target, "/")
+
+	// We prepare all the data in a temporary location
 	// If the target directory does not exist, we create it
-	isDirectory := strings.HasSuffix(r.URL.Path, "/")
-	targetDirectory := target
-	if !isDirectory {
-		targetDirectory = filepath.Dir(target)
+	targetTemp := getTempPath(id, target)
+	var targetTempDir string
+	if isDirectory {
+		targetTempDir = targetTemp
+	} else {
+		targetTempDir = filepath.Dir(target)
 	}
-	if err := os.MkdirAll(targetDirectory, DIR_PERM); err != nil {
+	if err := os.MkdirAll(targetTempDir, DIR_PERM); err != nil {
 		// TODO: return 400 on directory = existing file
 		return &ErrorDeployement{
 			http.StatusInternalServerError,
@@ -159,7 +164,6 @@ func (deployer *SiteDeployer) HandlePut(id string, target string, r *http.Reques
 	}
 
 	// We extract the body to a temporary location
-	targetTemp := getTempPath(id, target)
 	var errExtract *ErrorDeployement
 	if isDirectory {
 		errExtract = extractDirectory(targetTemp, r.Body, r.Header.Get("content-type"))
