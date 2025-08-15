@@ -42,7 +42,8 @@ assert_success() {
   rm -rf tests/root/*
 }
 
-
+# let caddy start
+sleep 0.1
 
 # ╔═══════════════════════════════════════════╗
 # ║                  TESTS                    ║
