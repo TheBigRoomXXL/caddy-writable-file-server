@@ -16,6 +16,7 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+	"pgregory.net/rapid"
 )
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -76,7 +77,7 @@ type MockHandler struct {
 
 func (m *MockHandler) ServeHTTP(http.ResponseWriter, *http.Request) error { return nil }
 
-func assertFileExist(t *testing.T, path string) {
+func assertFileExist(t T, path string) {
 	t.Helper()
 
 	info, err := os.Stat(path)
@@ -85,7 +86,7 @@ func assertFileExist(t *testing.T, path string) {
 	}
 }
 
-func assertDirectoryExist(t *testing.T, path string) {
+func assertDirectoryExist(t T, path string) {
 	t.Helper()
 
 	info, err := os.Stat(path)
@@ -94,7 +95,7 @@ func assertDirectoryExist(t *testing.T, path string) {
 	}
 }
 
-func assertDirectoryEmpty(t *testing.T, path string) {
+func assertDirectoryEmpty(t T, path string) {
 	entries, err := os.ReadDir(path)
 	if assert.NoError(t, err, "Error reading directory %q", path) {
 		assert.Empty(t, entries, "Expected directory %q to be empty, but found %d entries", path, len(entries))
@@ -126,7 +127,7 @@ func TestOnlyPUTAndDeleteAllowed(t *testing.T) {
 		http.MethodPatch,
 		http.MethodPost,
 	}
-	deployer := newTestSiteDeployer()
+	deployer := newTestSiteDeployer(t)
 
 	for _, method := range tests {
 		t.Run(method, func(t *testing.T) {
@@ -153,7 +154,7 @@ func TestRejectWindowADSPath(t *testing.T) {
 
 	pathWithADS := `\Path\To\Your\File.txt:hiddenstream.txt`
 
-	deployer := newTestSiteDeployer()
+	deployer := newTestSiteDeployer(t)
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", pathWithADS, bytes.NewBuffer([]byte{}))
 	r.Header.Add("Content-Type", "application/octet-stream")
@@ -175,7 +176,7 @@ func TestRejectWindowADSPath(t *testing.T) {
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 func TestUploadFile(t *testing.T) {
-	deployer := newTestSiteDeployer()
+	deployer := newTestSiteDeployer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", "/test.txt", newFile())
@@ -184,15 +185,15 @@ func TestUploadFile(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	data, err := os.ReadFile(deployer.Root + "/test.txt")
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, "Hi. What are you doing here?\n", string(data))
 }
 
 func TestUploadFileWithEmptyBody(t *testing.T) {
-	deployer := newTestSiteDeployer()
+	deployer := newTestSiteDeployer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", "/test.txt", bytes.NewBuffer([]byte{}))
@@ -201,10 +202,10 @@ func TestUploadFileWithEmptyBody(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	data, err := os.ReadFile(deployer.Root + "/test.txt")
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, len(data), 0)
 }
 
@@ -238,7 +239,7 @@ func TestUploadFilePBT(t *testing.T) {
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 func TestUploadDirectoryTar(t *testing.T) {
-	deployer := newTestSiteDeployer()
+	deployer := newTestSiteDeployer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", newTar())
@@ -247,11 +248,11 @@ func TestUploadDirectoryTar(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 }
 
 func TestUploadDirectoryTarGz(t *testing.T) {
-	deployer := newTestSiteDeployer()
+	deployer := newTestSiteDeployer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", newTarGz())
@@ -260,7 +261,7 @@ func TestUploadDirectoryTarGz(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	// Check directory structure
 	assertDirectoryExist(t, deployer.Root+"/tested/with-file/")
@@ -272,17 +273,17 @@ func TestUploadDirectoryTarGz(t *testing.T) {
 
 	// Check files content
 	data, err := os.ReadFile(deployer.Root + "/tested/empty-file/empty.txt")
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, len(data), 0)
 
 	data, err = os.ReadFile(deployer.Root + "/tested/with-file/deep.txt")
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, "deeeep!\n", string(data))
 
 }
 
 func TestUploadDirectoryWithEmptyBody(t *testing.T) {
-	deployer := newTestSiteDeployer()
+	deployer := newTestSiteDeployer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", "/tested/", bytes.NewBuffer([]byte{}))
@@ -291,7 +292,7 @@ func TestUploadDirectoryWithEmptyBody(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	assertDirectoryExist(t, deployer.Root+"/tested/")
 	assertDirectoryEmpty(t, deployer.Root+"/tested/")
@@ -302,7 +303,7 @@ func TestUploadDirectoryWithEmptyBody(t *testing.T) {
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 func TestDeleteFile(t *testing.T) {
-	deployer := newTestSiteDeployer()
+	deployer := newTestSiteDeployer(t)
 
 	err := os.WriteFile(deployer.Root+"/test.txt", []byte("teeest"), FILE_PERM)
 	if err != nil {
@@ -316,7 +317,7 @@ func TestDeleteFile(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	err = deployer.ServeHTTP(w, r, &MockHandler{})
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	_, err = os.Stat(deployer.Root + "/test.txt")
 	assert.ErrorIs(t, err, os.ErrNotExist, deployer.Root+"/test.txt")
@@ -327,7 +328,7 @@ func TestDeleteFile(t *testing.T) {
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 func DeleteRootDirectory(t *testing.T) {
-	deployer := newTestSiteDeployer()
+	deployer := newTestSiteDeployer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "DELETE", "/", newFile())
@@ -336,14 +337,14 @@ func DeleteRootDirectory(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	err := deployer.ServeHTTP(w, r, &MockHandler{})
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	_, err = os.Stat(deployer.Root)
 	assert.ErrorIs(t, err, os.ErrNotExist, deployer.Root)
 }
 
 func TestDeleteSubDirectory(t *testing.T) {
-	deployer := newTestSiteDeployer()
+	deployer := newTestSiteDeployer(t)
 
 	err := os.Mkdir(deployer.Root+"/tested/", DIR_PERM)
 	if err != nil {
@@ -357,7 +358,7 @@ func TestDeleteSubDirectory(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	err = deployer.ServeHTTP(w, r, &MockHandler{})
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	_, err = os.Stat(deployer.Root + deployer.Root + "/tested/")
 	assert.ErrorIs(t, err, os.ErrNotExist, deployer.Root+"/test.txt")
