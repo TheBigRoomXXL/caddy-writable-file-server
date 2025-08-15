@@ -101,6 +101,20 @@ func assertDirectoryEmpty(t *testing.T, path string) {
 	}
 }
 
+func GenetatorUrlPath() *rapid.Generator[string] {
+	return rapid.Custom(func(t *rapid.T) string {
+		for {
+			path := rapid.StringMatching(`[-A-Za-z0-9_/]*`).Draw(t, "path") // constrain path chars
+
+			// Try making a request; only accept if it succeeds
+			_, err := http.NewRequest("GET", "/"+path, nil)
+			if err == nil {
+				return path
+			}
+		}
+	})
+}
+
 // ╔══════════════════════════════════════════════════════════════════════════════╗
 // ║                               Invalid Requests                               ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -192,6 +206,31 @@ func TestUploadFileWithEmptyBody(t *testing.T) {
 	data, err := os.ReadFile(deployer.Root + "/test.txt")
 	assert.Nil(t, err)
 	assert.Equal(t, len(data), 0)
+}
+
+func TestUploadFilePBT(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		var (
+			path = GenetatorUrlPath().Draw(t, "path")
+			body = rapid.SliceOf(rapid.Byte()).Draw(t, "body")
+		)
+		deployer := newTestSiteDeployer(t)
+
+		ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+		r, _ := http.NewRequestWithContext(ctx, "PUT", "/"+path, bytes.NewBuffer(body))
+		r.Header.Add("Content-Type", "application/octet-stream")
+
+		w := httptest.NewRecorder()
+
+		err := deployer.ServeHTTP(w, r, &MockHandler{})
+		if err != nil {
+			errHandler, ok := err.(caddyhttp.HandlerError)
+
+			assert.NotNil(t, err)
+			assert.True(t, ok)
+			assert.True(t, errHandler.StatusCode < 500)
+		}
+	})
 }
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗

@@ -6,6 +6,7 @@ require (
 	github.com/caddyserver/caddy/v2 v2.10.0
 	github.com/stretchr/testify v1.10.0
 	go.uber.org/zap v1.27.0
+	pgregory.net/rapid v1.2.0
 )
 
 require (
