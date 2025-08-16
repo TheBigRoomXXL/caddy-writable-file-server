@@ -41,10 +41,8 @@ func newTestSiteDeployer(t T) *SiteDeployer {
 	})
 
 	return &SiteDeployer{
-		Root:      tmp,
-		MaxSizeMB: 1,
-		maxSizeB:  1024 * 1024,
-		logger:    zap.NewNop(),
+		Root:   tmp,
+		logger: zap.NewNop(),
 	}
 }
 
@@ -168,8 +166,6 @@ func TestRejectWindowADSPath(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, http.StatusBadRequest, errHandler.StatusCode)
 }
-
-// TODO: TestRejectBodyTooLarge
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
 // ║                                 Upload File                                  ║

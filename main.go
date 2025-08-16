@@ -34,12 +34,6 @@ type SiteDeployer struct {
 	// The path to the root of the site. Default is `{http.vars.root}`
 	Root string `json:"root,omitempty"`
 
-	// Maximimum size of the uploaded (compressed) archive in MB
-	MaxSizeMB int64 `json:"max_size_mb,omitempty"`
-
-	// MaxSizeMB converted to byte
-	maxSizeB int64
-
 	// Caddy structured logger
 	logger *zap.Logger
 }
@@ -59,12 +53,6 @@ func (deployer *SiteDeployer) Provision(ctx caddy.Context) error {
 	if deployer.Root == "" {
 		deployer.Root = "{http.vars.root}"
 	}
-
-	if deployer.MaxSizeMB == 0 {
-		deployer.MaxSizeMB = 32
-	}
-
-	deployer.maxSizeB = deployer.MaxSizeMB * 1024 * 1024
 
 	return nil
 }
