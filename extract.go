@@ -96,7 +96,7 @@ func extractTar(target string, reader io.Reader) *ErrorDeployement {
 		if !strings.HasPrefix(targetPath, filepath.Clean(target)+string(os.PathSeparator)) {
 			return &ErrorDeployement{
 				http.StatusInternalServerError,
-				fmt.Errorf("security error: path traversal: %w", err),
+				fmt.Errorf("security error: path traversal:  %s", hdr.Name),
 				"",
 			}
 		}
