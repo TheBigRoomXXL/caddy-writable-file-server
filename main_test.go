@@ -298,6 +298,56 @@ func TestUploadDirectoryWithEmptyBody(t *testing.T) {
 	assertDirectoryEmpty(t, deployer.Root+"/tested/")
 }
 
+func TesUploadDirectoryTarPBT(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		var (
+			path = GenetatorUrlPath().Draw(t, "path")
+			body = rapid.SliceOf(rapid.Byte()).Draw(t, "body")
+		)
+		deployer := newTestSiteDeployer(t)
+
+		ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+		r, _ := http.NewRequestWithContext(ctx, "PUT", "/"+path+"/", bytes.NewBuffer(body))
+		r.Header.Add("Content-Type", "application/x-tar")
+
+		w := httptest.NewRecorder()
+
+		err := deployer.ServeHTTP(w, r, &MockHandler{})
+		if err != nil {
+			errHandler, ok := err.(caddyhttp.HandlerError)
+
+			assert.NotNil(t, err)
+			assert.True(t, ok)
+			assert.True(t, errHandler.StatusCode < 500)
+		}
+	})
+}
+
+func TesUploadDirectoryTarGzPBT(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		var (
+			path = GenetatorUrlPath().Draw(t, "path")
+			body = rapid.SliceOf(rapid.Byte()).Draw(t, "body")
+		)
+		deployer := newTestSiteDeployer(t)
+
+		ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
+		r, _ := http.NewRequestWithContext(ctx, "PUT", "/"+path+"/", bytes.NewBuffer(body))
+		r.Header.Add("Content-Type", "application/x-tar+gzip")
+
+		w := httptest.NewRecorder()
+
+		err := deployer.ServeHTTP(w, r, &MockHandler{})
+		if err != nil {
+			errHandler, ok := err.(caddyhttp.HandlerError)
+
+			assert.NotNil(t, err)
+			assert.True(t, ok)
+			assert.True(t, errHandler.StatusCode < 500)
+		}
+	})
+}
+
 // ╔══════════════════════════════════════════════════════════════════════════════╗
 // ║                                 Delete File                                  ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
