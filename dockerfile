@@ -12,7 +12,7 @@ RUN go mod download
 
 # Build static binary
 COPY . . 
-RUN CGO_ENABLED=0 GOFLAGS="-ldflags=-s -w -tags=timetzdata" xcaddy build --with github.com/thebigroomxxl/caddy-site-deployer
+RUN CGO_ENABLED=0 GOFLAGS="-ldflags=-s -w -tags=timetzdata" xcaddy build --with github.com/thebigroomxxl/caddy-writable-file-server
 
 # Compress binary
 RUN upx /build/caddy

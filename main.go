@@ -1,4 +1,4 @@
-package caddy_site_deployer
+package caddy_writable_file_server
 
 import (
 	"errors"
@@ -23,14 +23,14 @@ const FILE_PERM = 0640
 var lock sync.Mutex = sync.Mutex{}
 
 func init() {
-	caddy.RegisterModule(SiteDeployer{})
+	caddy.RegisterModule(WritableFileServer{})
 	// TODO: unit tests
 	// TODO: integration tests (add file, add tar, add tar.gz, delete file, delete directory)
 	// TODO: only use ErrorDeployement on not 500 errors
 	// TODO: add end of line on error message
 }
 
-type SiteDeployer struct {
+type WritableFileServer struct {
 	// The path to the root of the site. Default is `{http.vars.root}`
 	Root string `json:"root,omitempty"`
 
@@ -39,25 +39,25 @@ type SiteDeployer struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (SiteDeployer) CaddyModule() caddy.ModuleInfo {
+func (WritableFileServer) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "http.handlers.site_deployer",
-		New: func() caddy.Module { return new(SiteDeployer) },
+		ID:  "http.handlers.writable_file_server",
+		New: func() caddy.Module { return new(WritableFileServer) },
 	}
 }
 
-// Provision sets up the Static Site Deployer.
-func (deployer *SiteDeployer) Provision(ctx caddy.Context) error {
-	deployer.logger = ctx.Logger()
+// Provision sets up the Static Site wfs.
+func (wfs *WritableFileServer) Provision(ctx caddy.Context) error {
+	wfs.logger = ctx.Logger()
 
-	if deployer.Root == "" {
-		deployer.Root = "{http.vars.root}"
+	if wfs.Root == "" {
+		wfs.Root = "{http.vars.root}"
 	}
 
 	return nil
 }
 
-func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+func (wfs *WritableFileServer) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	// Request are processed sequencially to avoid conflict
 	lock.Lock()
 	defer lock.Unlock()
@@ -81,7 +81,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	}
 
 	repl := r.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
-	root := repl.ReplaceAll(deployer.Root, ".")
+	root := repl.ReplaceAll(wfs.Root, ".")
 	// End of copied code
 
 	target := caddyhttp.SanitizedPathJoin(root, r.URL.Path)
@@ -89,7 +89,7 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		target += "/" // Side effect of SanitizedPathJoin
 	}
 
-	if c := deployer.logger.Check(zapcore.DebugLevel, "sanitized path join"); c != nil {
+	if c := wfs.logger.Check(zapcore.DebugLevel, "sanitized path join"); c != nil {
 		c.Write(
 			zap.String("site_root", root),
 			zap.String("request_path", r.URL.Path),
@@ -101,31 +101,31 @@ func (deployer *SiteDeployer) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	var err *ErrorDeployement
 	switch r.Method {
 	case http.MethodPut:
-		err = deployer.HandlePut(id, target, r)
+		err = wfs.HandlePut(id, target, r)
 	case http.MethodDelete:
-		err = deployer.HandleDelete(id, target, r)
+		err = wfs.HandleDelete(id, target, r)
 	default:
 		w.Write([]byte(fmt.Sprintf("Unauthorized method: %s\n", r.Method)))
 		return caddyhttp.Error(http.StatusMethodNotAllowed, errors.New("unauthorized method"))
 	}
 
 	if err != nil {
-		deployer.logger.Log(zapcore.DebugLevel, err.Error())
+		wfs.logger.Log(zapcore.DebugLevel, err.Error())
 		level := zapcore.WarnLevel
 		if err.StatusCode >= 500 {
 			level = zapcore.ErrorLevel
 			err.Public = ""
 		}
-		deployer.logger.Log(level, err.Private.Error(), zap.Int("statusCode", err.StatusCode))
+		wfs.logger.Log(level, err.Private.Error(), zap.Int("statusCode", err.StatusCode))
 		w.Write([]byte(err.Error()))
 		return caddyhttp.Error(err.StatusCode, err.Private)
 	}
-	deployer.logger.Log(zapcore.DebugLevel, "err is fucking null")
+	wfs.logger.Log(zapcore.DebugLevel, "err is fucking null")
 
 	return nil
 }
 
-func (deployer *SiteDeployer) HandlePut(id string, target string, r *http.Request) *ErrorDeployement {
+func (wfs *WritableFileServer) HandlePut(id string, target string, r *http.Request) *ErrorDeployement {
 	// We make sure tu close the body if it is not empty
 	if r.Body != nil {
 		defer r.Body.Close()
@@ -160,11 +160,11 @@ func (deployer *SiteDeployer) HandlePut(id string, target string, r *http.Reques
 	}
 
 	if errExtract != nil {
-		deployer.logger.Log(zapcore.DebugLevel, errExtract.Error())
+		wfs.logger.Log(zapcore.DebugLevel, errExtract.Error())
 		return errExtract
 	}
 
-	deployer.logger.Log(zapcore.DebugLevel, " errExtract is nil")
+	wfs.logger.Log(zapcore.DebugLevel, " errExtract is nil")
 
 	// Check the state of the target
 	_, err := os.Stat(target)
@@ -193,8 +193,8 @@ func (deployer *SiteDeployer) HandlePut(id string, target string, r *http.Reques
 			if err == nil {
 
 				err := os.RemoveAll(targetBackup)
-				deployer.logger.Log(zapcore.DebugLevel, "removing", zap.String("targetBackup", targetBackup))
-				deployer.logger.Log(zapcore.DebugLevel, "line 198", zap.Error(err))
+				wfs.logger.Log(zapcore.DebugLevel, "removing", zap.String("targetBackup", targetBackup))
+				wfs.logger.Log(zapcore.DebugLevel, "line 198", zap.Error(err))
 
 			}
 		}()
@@ -214,7 +214,7 @@ func (deployer *SiteDeployer) HandlePut(id string, target string, r *http.Reques
 	return nil
 }
 
-func (deployer *SiteDeployer) HandleDelete(id string, target string, r *http.Request) *ErrorDeployement {
+func (wfs *WritableFileServer) HandleDelete(id string, target string, r *http.Request) *ErrorDeployement {
 	// Check the state of the target
 	_, err := os.Stat(target)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -236,9 +236,9 @@ func (deployer *SiteDeployer) HandleDelete(id string, target string, r *http.Req
 
 	// Otherwise we just delete the target
 	err = os.RemoveAll(target)
-	deployer.logger.Log(zapcore.DebugLevel, "removing", zap.String("target", target))
+	wfs.logger.Log(zapcore.DebugLevel, "removing", zap.String("target", target))
 
-	deployer.logger.Log(zapcore.DebugLevel, "line 238", zap.Error(err))
+	wfs.logger.Log(zapcore.DebugLevel, "line 238", zap.Error(err))
 
 	if err != nil {
 		return &ErrorDeployement{

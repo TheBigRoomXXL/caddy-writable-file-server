@@ -1,4 +1,4 @@
-package caddy_site_deployer
+package caddy_writable_file_server
 
 import (
 	"crypto/rand"

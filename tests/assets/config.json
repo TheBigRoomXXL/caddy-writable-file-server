@@ -10,7 +10,7 @@
                     "format": "console"
                 }
             },
-            "site_deployer": {
+            "writable_file_server": {
                 "level": "DEBUG",
                 "writer": {
                     "output": "stdout"
@@ -19,7 +19,7 @@
                     "format": "console"
                 },
                 "include": [
-                    "http.handlers.site_deployer"
+                    "http.handlers.writable_file_server"
                 ]
             }
         }
@@ -43,7 +43,7 @@
                             ],
                             "handle": [
                                 {
-                                    "handler": "site_deployer",
+                                    "handler": "writable_file_server",
                                     "root": "tests/root/"
                                 }
                             ]

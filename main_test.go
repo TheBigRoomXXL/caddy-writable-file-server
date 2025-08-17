@@ -1,4 +1,4 @@
-package caddy_site_deployer
+package caddy_writable_file_server
 
 import (
 	"bytes"
@@ -30,8 +30,8 @@ type T interface {
 	Cleanup(func())
 }
 
-func newTestSiteDeployer(t T) *SiteDeployer {
-	tmp, err := os.MkdirTemp("", "caddy-site-deployer-test-")
+func newTestWritableFileServer(t T) *WritableFileServer {
+	tmp, err := os.MkdirTemp("", "caddy-writable-file-server-test-")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func newTestSiteDeployer(t T) *SiteDeployer {
 		os.RemoveAll(tmp)
 	})
 
-	return &SiteDeployer{
+	return &WritableFileServer{
 		Root:   tmp,
 		logger: zap.NewNop(),
 	}
@@ -125,7 +125,7 @@ func TestOnlyPUTAndDeleteAllowed(t *testing.T) {
 		http.MethodPatch,
 		http.MethodPost,
 	}
-	deployer := newTestSiteDeployer(t)
+	wfs := newTestWritableFileServer(t)
 
 	for _, method := range tests {
 		t.Run(method, func(t *testing.T) {
@@ -134,7 +134,7 @@ func TestOnlyPUTAndDeleteAllowed(t *testing.T) {
 
 			w := httptest.NewRecorder()
 
-			err := deployer.ServeHTTP(w, r, &MockHandler{})
+			err := wfs.ServeHTTP(w, r, &MockHandler{})
 			errHandler, ok := err.(caddyhttp.HandlerError)
 
 			assert.NotNil(t, err)
@@ -152,14 +152,14 @@ func TestRejectWindowADSPath(t *testing.T) {
 
 	pathWithADS := `\Path\To\Your\File.txt:hiddenstream.txt`
 
-	deployer := newTestSiteDeployer(t)
+	wfs := newTestWritableFileServer(t)
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", pathWithADS, bytes.NewBuffer([]byte{}))
 	r.Header.Add("Content-Type", "application/octet-stream")
 
 	w := httptest.NewRecorder()
 
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	err := wfs.ServeHTTP(w, r, &MockHandler{})
 	errHandler, ok := err.(caddyhttp.HandlerError)
 
 	assert.NotNil(t, err)
@@ -172,7 +172,7 @@ func TestRejectWindowADSPath(t *testing.T) {
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 func TestUploadFile(t *testing.T) {
-	deployer := newTestSiteDeployer(t)
+	wfs := newTestWritableFileServer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", "/test.txt", newFile())
@@ -180,16 +180,16 @@ func TestUploadFile(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	err := wfs.ServeHTTP(w, r, &MockHandler{})
 	assert.NoError(t, err)
 
-	data, err := os.ReadFile(deployer.Root + "/test.txt")
+	data, err := os.ReadFile(wfs.Root + "/test.txt")
 	assert.NoError(t, err)
 	assert.Equal(t, "Hi. What are you doing here?\n", string(data))
 }
 
 func TestUploadFileWithEmptyBody(t *testing.T) {
-	deployer := newTestSiteDeployer(t)
+	wfs := newTestWritableFileServer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", "/test.txt", bytes.NewBuffer([]byte{}))
@@ -197,10 +197,10 @@ func TestUploadFileWithEmptyBody(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	err := wfs.ServeHTTP(w, r, &MockHandler{})
 	assert.NoError(t, err)
 
-	data, err := os.ReadFile(deployer.Root + "/test.txt")
+	data, err := os.ReadFile(wfs.Root + "/test.txt")
 	assert.NoError(t, err)
 	assert.Equal(t, len(data), 0)
 }
@@ -211,7 +211,7 @@ func TestUploadFilePBT(t *testing.T) {
 			path = GenetatorUrlPath().Draw(t, "path")
 			body = rapid.SliceOf(rapid.Byte()).Draw(t, "body")
 		)
-		deployer := newTestSiteDeployer(t)
+		wfs := newTestWritableFileServer(t)
 
 		ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 		r, _ := http.NewRequestWithContext(ctx, "PUT", "/"+path, bytes.NewBuffer(body))
@@ -219,7 +219,7 @@ func TestUploadFilePBT(t *testing.T) {
 
 		w := httptest.NewRecorder()
 
-		err := deployer.ServeHTTP(w, r, &MockHandler{})
+		err := wfs.ServeHTTP(w, r, &MockHandler{})
 		if err != nil {
 			errHandler, ok := err.(caddyhttp.HandlerError)
 
@@ -235,7 +235,7 @@ func TestUploadFilePBT(t *testing.T) {
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 func TestUploadDirectoryTar(t *testing.T) {
-	deployer := newTestSiteDeployer(t)
+	wfs := newTestWritableFileServer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", newTar())
@@ -243,12 +243,12 @@ func TestUploadDirectoryTar(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	err := wfs.ServeHTTP(w, r, &MockHandler{})
 	assert.NoError(t, err)
 }
 
 func TestUploadDirectoryTarGz(t *testing.T) {
-	deployer := newTestSiteDeployer(t)
+	wfs := newTestWritableFileServer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", "/", newTarGz())
@@ -256,30 +256,30 @@ func TestUploadDirectoryTarGz(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	err := wfs.ServeHTTP(w, r, &MockHandler{})
 	assert.NoError(t, err)
 
 	// Check directory structure
-	assertDirectoryExist(t, deployer.Root+"/tested/with-file/")
-	assertDirectoryExist(t, deployer.Root+"/tested/empty-file/")
-	assertDirectoryExist(t, deployer.Root+"/tested/no-file/")
-	assertDirectoryEmpty(t, deployer.Root+"/tested/no-file/")
-	assertFileExist(t, deployer.Root+"/tested/empty-file/empty.txt")
-	assertFileExist(t, deployer.Root+"/tested/with-file/deep.txt")
+	assertDirectoryExist(t, wfs.Root+"/tested/with-file/")
+	assertDirectoryExist(t, wfs.Root+"/tested/empty-file/")
+	assertDirectoryExist(t, wfs.Root+"/tested/no-file/")
+	assertDirectoryEmpty(t, wfs.Root+"/tested/no-file/")
+	assertFileExist(t, wfs.Root+"/tested/empty-file/empty.txt")
+	assertFileExist(t, wfs.Root+"/tested/with-file/deep.txt")
 
 	// Check files content
-	data, err := os.ReadFile(deployer.Root + "/tested/empty-file/empty.txt")
+	data, err := os.ReadFile(wfs.Root + "/tested/empty-file/empty.txt")
 	assert.NoError(t, err)
 	assert.Equal(t, len(data), 0)
 
-	data, err = os.ReadFile(deployer.Root + "/tested/with-file/deep.txt")
+	data, err = os.ReadFile(wfs.Root + "/tested/with-file/deep.txt")
 	assert.NoError(t, err)
 	assert.Equal(t, "deeeep!\n", string(data))
 
 }
 
 func TestUploadDirectoryWithEmptyBody(t *testing.T) {
-	deployer := newTestSiteDeployer(t)
+	wfs := newTestWritableFileServer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "PUT", "/tested/", bytes.NewBuffer([]byte{}))
@@ -287,11 +287,11 @@ func TestUploadDirectoryWithEmptyBody(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	err := wfs.ServeHTTP(w, r, &MockHandler{})
 	assert.NoError(t, err)
 
-	assertDirectoryExist(t, deployer.Root+"/tested/")
-	assertDirectoryEmpty(t, deployer.Root+"/tested/")
+	assertDirectoryExist(t, wfs.Root+"/tested/")
+	assertDirectoryEmpty(t, wfs.Root+"/tested/")
 }
 
 func TesUploadDirectoryTarPBT(t *testing.T) {
@@ -300,7 +300,7 @@ func TesUploadDirectoryTarPBT(t *testing.T) {
 			path = GenetatorUrlPath().Draw(t, "path")
 			body = rapid.SliceOf(rapid.Byte()).Draw(t, "body")
 		)
-		deployer := newTestSiteDeployer(t)
+		wfs := newTestWritableFileServer(t)
 
 		ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 		r, _ := http.NewRequestWithContext(ctx, "PUT", "/"+path+"/", bytes.NewBuffer(body))
@@ -308,7 +308,7 @@ func TesUploadDirectoryTarPBT(t *testing.T) {
 
 		w := httptest.NewRecorder()
 
-		err := deployer.ServeHTTP(w, r, &MockHandler{})
+		err := wfs.ServeHTTP(w, r, &MockHandler{})
 		if err != nil {
 			errHandler, ok := err.(caddyhttp.HandlerError)
 
@@ -325,7 +325,7 @@ func TesUploadDirectoryTarGzPBT(t *testing.T) {
 			path = GenetatorUrlPath().Draw(t, "path")
 			body = rapid.SliceOf(rapid.Byte()).Draw(t, "body")
 		)
-		deployer := newTestSiteDeployer(t)
+		wfs := newTestWritableFileServer(t)
 
 		ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 		r, _ := http.NewRequestWithContext(ctx, "PUT", "/"+path+"/", bytes.NewBuffer(body))
@@ -333,7 +333,7 @@ func TesUploadDirectoryTarGzPBT(t *testing.T) {
 
 		w := httptest.NewRecorder()
 
-		err := deployer.ServeHTTP(w, r, &MockHandler{})
+		err := wfs.ServeHTTP(w, r, &MockHandler{})
 		if err != nil {
 			errHandler, ok := err.(caddyhttp.HandlerError)
 
@@ -349,9 +349,9 @@ func TesUploadDirectoryTarGzPBT(t *testing.T) {
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 func TestDeleteFile(t *testing.T) {
-	deployer := newTestSiteDeployer(t)
+	wfs := newTestWritableFileServer(t)
 
-	err := os.WriteFile(deployer.Root+"/test.txt", []byte("teeest"), FILE_PERM)
+	err := os.WriteFile(wfs.Root+"/test.txt", []byte("teeest"), FILE_PERM)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,11 +362,11 @@ func TestDeleteFile(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	err = deployer.ServeHTTP(w, r, &MockHandler{})
+	err = wfs.ServeHTTP(w, r, &MockHandler{})
 	assert.NoError(t, err)
 
-	_, err = os.Stat(deployer.Root + "/test.txt")
-	assert.ErrorIs(t, err, os.ErrNotExist, deployer.Root+"/test.txt")
+	_, err = os.Stat(wfs.Root + "/test.txt")
+	assert.ErrorIs(t, err, os.ErrNotExist, wfs.Root+"/test.txt")
 }
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -374,7 +374,7 @@ func TestDeleteFile(t *testing.T) {
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 func DeleteRootDirectory(t *testing.T) {
-	deployer := newTestSiteDeployer(t)
+	wfs := newTestWritableFileServer(t)
 
 	ctx := context.WithValue(context.Background(), caddy.ReplacerCtxKey, &caddy.Replacer{})
 	r, _ := http.NewRequestWithContext(ctx, "DELETE", "/", newFile())
@@ -382,17 +382,17 @@ func DeleteRootDirectory(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	err := deployer.ServeHTTP(w, r, &MockHandler{})
+	err := wfs.ServeHTTP(w, r, &MockHandler{})
 	assert.NoError(t, err)
 
-	_, err = os.Stat(deployer.Root)
-	assert.ErrorIs(t, err, os.ErrNotExist, deployer.Root)
+	_, err = os.Stat(wfs.Root)
+	assert.ErrorIs(t, err, os.ErrNotExist, wfs.Root)
 }
 
 func TestDeleteSubDirectory(t *testing.T) {
-	deployer := newTestSiteDeployer(t)
+	wfs := newTestWritableFileServer(t)
 
-	err := os.Mkdir(deployer.Root+"/tested/", DIR_PERM)
+	err := os.Mkdir(wfs.Root+"/tested/", DIR_PERM)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,9 +403,9 @@ func TestDeleteSubDirectory(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	err = deployer.ServeHTTP(w, r, &MockHandler{})
+	err = wfs.ServeHTTP(w, r, &MockHandler{})
 	assert.NoError(t, err)
 
-	_, err = os.Stat(deployer.Root + deployer.Root + "/tested/")
-	assert.ErrorIs(t, err, os.ErrNotExist, deployer.Root+"/test.txt")
+	_, err = os.Stat(wfs.Root + wfs.Root + "/tested/")
+	assert.ErrorIs(t, err, os.ErrNotExist, wfs.Root+"/test.txt")
 }

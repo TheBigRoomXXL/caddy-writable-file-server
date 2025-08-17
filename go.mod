@@ -1,4 +1,4 @@
-module github.com/thebigroomxxl/caddy-site-deployer
+module github.com/thebigroomxxl/caddy-writable-file-server
 
 go 1.24.2
 

@@ -1,4 +1,4 @@
-# Static Site Deployer
+# Static Site wfs
 
 > Work In Progress
 
@@ -11,7 +11,7 @@ xcaddy run
 
 Build caddy with the plugin
 ```bash
-xcaddy build --with  github.com/thebigroomxxl/caddy-site-deployer
+xcaddy build --with  github.com/thebigroomxxl/caddy-writable-file-server
 ```
 
 Once running, update caddy config
